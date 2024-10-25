@@ -16,16 +16,16 @@ int8_t crack_password(char password[], unsigned char given_hash[32]);
 
 // Uncomment the following to run tests
 
-void test_hex_to_byte();
+/* void test_hex_to_byte();
 void test_hexstr_to_hash();
 void test_check_password();
-void test_crack_password();
+void test_crack_password(); */
 
 
 int main(int argc, char **argv) {
     // Uncomment for testing
 
-    const int testing = 0;
+    /* const int testing = 0;
     if (testing) {
         test_hex_to_byte();
         test_hexstr_to_hash();
@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
         test_crack_password();
         printf("All tests passed!\n");
         return 0;
-    }
+    } */
    
 
     if (argc != 2) {
