@@ -1,0 +1,8 @@
+# Generated build products (including the original root-level executable)
+/build/
+/pwcrack
+
+# Local tooling
+__pycache__/
+*.pyc
+.DS_Store
