@@ -1,0 +1,28 @@
+name: C build and tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y build-essential clang libssl-dev python3
+      - name: Build and test
+        run: make CC=${{ matrix.compiler }} test
+      - name: Static analysis (Clang)
+        if: matrix.compiler == 'clang'
+        run: make analyze
+      - name: Sanitizers (Clang)
+        if: matrix.compiler == 'clang'
+        run: |
+          make clean
+          make CC=clang SANITIZE=1 test
+          make clean
