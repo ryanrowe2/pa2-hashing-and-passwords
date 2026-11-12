@@ -235,6 +235,24 @@ printf '%s' "${INSTALLED:-1.2.3}"
                 self.assertEqual(self.command("audit-toolchain").returncode, 2)
         self.assertFalse((self.cwd / "sudo.log").exists())
 
+    def test_nonstandard_line_separators_and_controls_rejected(self):
+        baseline = self.lock.read_bytes()
+        self.assertIn(b"\n", baseline)
+        for replacement in (b"\x0b", b"\x0c", b"\r", b"\x1c",
+                            b"\x1d", b"\x1e", b"\x7f", b"\x00"):
+            with self.subTest(replacement=replacement):
+                self.lock.write_bytes(baseline.replace(b"\n", replacement, 1))
+                for tool in ("parse", "audit-toolchain", "install-toolchain"):
+                    x = self.command(tool)
+                    self.assertEqual(x.returncode, 2, x.stderr)
+        self.lock.write_bytes(baseline)
+
+    def test_crlf_lockfile_is_accepted_without_record_ambiguity(self):
+        self.lock.write_bytes(self.lock.read_bytes().replace(b"\n", b"\r\n"))
+        self.assertEqual(self.command("parse").returncode, 0)
+        self.assertEqual(self.command("audit-toolchain").returncode, 0)
+        self.assertEqual(self.command("install-toolchain").returncode, 0)
+
     def test_leading_whitespace_on_existing_entry_rejected(self):
         self.lock.write_text(self.lock.read_text().replace(
             "gcc=1.2.3", "  gcc=1.2.3"))

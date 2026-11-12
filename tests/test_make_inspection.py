@@ -18,6 +18,9 @@ class MakeInspectionTests(unittest.TestCase):
         shutil.copy2(ROOT / "Makefile", self.root / "Makefile")
         shutil.copytree(ROOT / "src", self.root / "src")
         shutil.copytree(ROOT / "include", self.root / "include")
+        (self.root / "tests").mkdir()
+        for name in ("test_fault.c", "sha256_fail.c"):
+            shutil.copy2(ROOT / "tests" / name, self.root / "tests" / name)
 
     def invoke(self, *args):
         return subprocess.run(["make", *args], cwd=self.root,
@@ -96,6 +99,24 @@ class MakeInspectionTests(unittest.TestCase):
         for flags in (("-t",), ("--touch",)):
             self.assertNotEqual(self.invoke(*flags, "build/pwcrack").returncode, 0)
             self.assertEqual(binary.read_bytes(), original)
+
+    def test_fault_injection_linker_configuration_triggers_rebuild(self):
+        targets = ("build/test_fault", "build/pwcrack_sha_error")
+        baseline = self.invoke("CC=gcc", *targets)
+        self.assertEqual(baseline.returncode, 0, baseline.stderr.decode())
+        original = (self.root / "build/.build-config").read_text()
+        self.assertIn("WRAP_SHA256=-Wl,--wrap=SHA256", original)
+        adjusted = "WRAP_SHA256=-Wl,--wrap=SHA256 -Wl,--build-id=none"
+        stale = self.invoke("-q", "CC=gcc", adjusted, *targets)
+        self.assertEqual(stale.returncode, 1, stale.stderr.decode())
+        build = self.invoke("CC=gcc", adjusted, *targets)
+        self.assertEqual(build.returncode, 0, build.stderr.decode())
+        self.assertIn(b"Compiling build/test_fault with gcc", build.stdout)
+        self.assertIn(b"Compiling build/pwcrack_sha_error with gcc", build.stdout)
+        stamp = (self.root / "build/.build-config").read_text()
+        self.assertIn(adjusted.replace("WRAP_SHA256=", "WRAP_SHA256="), stamp)
+        self.assertEqual(self.invoke("-q", "CC=gcc", adjusted, *targets).returncode, 0)
+        self.assertEqual(self.invoke("-q", "CC=gcc", *targets).returncode, 1)
 
     def test_normal_make_still_uses_lock_with_long_option(self):
         result = self.invoke("--no-print-directory", "CC=gcc", "build/pwcrack")

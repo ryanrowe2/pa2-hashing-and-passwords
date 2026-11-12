@@ -47,7 +47,8 @@ static int matches_digest(const char *candidate, size_t length,
 
 int find_sha256_candidate(char *candidate, size_t length,
                           const unsigned char digest[SHA256_DIGEST_LENGTH]) {
-    if (candidate == NULL || digest == NULL) {
+    if (candidate == NULL || digest == NULL ||
+        length > PWCRACK_MAX_CANDIDATE_BYTES) {
         return -1;
     }
 

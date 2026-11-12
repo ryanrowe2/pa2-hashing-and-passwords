@@ -69,6 +69,21 @@ static int test_candidates(void) {
     CHECK(find_sha256_candidate(boundary, PWCRACK_MAX_CANDIDATE_BYTES, digest) == 1);
     CHECK(boundary[PWCRACK_MAX_CANDIDATE_BYTES - 1u] == 'A');
 
+    /* The core API must reject out-of-contract lengths before hashing or
+       accessing a caller-provided buffer; rejected input stays unmodified. */
+    unsigned char oversized_digest[SHA256_DIGEST_LENGTH];
+    char oversized[PWCRACK_MAX_CANDIDATE_BYTES + 2u];
+    memset(oversized, 'x', PWCRACK_MAX_CANDIDATE_BYTES + 1u);
+    oversized[PWCRACK_MAX_CANDIDATE_BYTES + 1u] = '\0';
+    CHECK(SHA256((const unsigned char *)oversized,
+                 PWCRACK_MAX_CANDIDATE_BYTES + 1u, oversized_digest) != NULL);
+    CHECK(find_sha256_candidate(oversized,
+                                PWCRACK_MAX_CANDIDATE_BYTES + 1u,
+                                oversized_digest) == -1);
+    CHECK(oversized[0] == 'x' &&
+          oversized[PWCRACK_MAX_CANDIDATE_BYTES] == 'x');
+    CHECK(find_sha256_candidate(oversized, (size_t)-1, oversized_digest) == -1);
+
     /* UTF-8 bytes must never be interpreted as letters by the C locale. */
     char utf8[] = {(char)0xc3, (char)0xa9, 'A', '\0'};
     char target[] = {(char)0xc3, (char)0xa9, 'a', '\0'};
