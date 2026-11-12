@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
 #endif
 
     if (argc != 2) {
-        fprintf(stderr, "Usage: %s <64-character SHA-256 hex digest>\n", argv[0]);
+        fputs("Usage: pwcrack <64-character SHA-256 hex digest>\n", stderr);
         return 2;
     }
 
