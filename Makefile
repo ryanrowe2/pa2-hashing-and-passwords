@@ -8,6 +8,7 @@ UNIT = build/test_core
 FAULT = build/test_fault
 FAULT_CLI = build/pwcrack_sha_error
 CONFIG = build/.build-config
+WRAP_SHA256 = -Wl,--wrap=SHA256
 SAN_FLAGS = -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
 
 ifeq ($(SANITIZE),1)
@@ -49,10 +50,10 @@ $(UNIT): tests/test_core.c src/pwcrack.c include/pwcrack.h Makefile $(CONFIG) | 
 	$(call compile_atomically,tests/test_core.c src/pwcrack.c,)
 
 $(FAULT): tests/test_fault.c src/pwcrack.c include/pwcrack.h Makefile $(CONFIG) | build
-	$(call compile_atomically,tests/test_fault.c src/pwcrack.c,-Wl,--wrap=SHA256)
+	$(call compile_atomically,tests/test_fault.c src/pwcrack.c,$(WRAP_SHA256))
 
 $(FAULT_CLI): tests/sha256_fail.c src/main.c src/pwcrack.c include/pwcrack.h Makefile $(CONFIG) | build
-	$(call compile_atomically,tests/sha256_fail.c src/main.c src/pwcrack.c,-Wl,--wrap=SHA256)
+	$(call compile_atomically,tests/sha256_fail.c src/main.c src/pwcrack.c,$(WRAP_SHA256))
 
 test: $(BIN) $(UNIT) $(FAULT) $(FAULT_CLI)
 	./$(UNIT)
