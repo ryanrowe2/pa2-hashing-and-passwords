@@ -9,3 +9,6 @@ __pycache__/
 
 # Clang analyzer artifacts
 *.plist
+
+# Persistent root-level lock for independent GNU Make invocations.
+/.pa2-build.lock
