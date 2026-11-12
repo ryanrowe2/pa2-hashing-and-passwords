@@ -4,6 +4,7 @@ import hashlib
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 
 BIN = Path(os.environ.get("PWCRACK_BIN", "build/pwcrack")).resolve()
@@ -91,6 +92,17 @@ class CLITests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn(b"Usage:", result.stderr)
         self.assertEqual(result.stdout, b"")
+
+    @unittest.skipUnless(os.name == "posix", "requires executable symlinks")
+    def test_usage_diagnostic_rejects_terminal_control_in_invocation_path(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pwcrack-usage-") as directory:
+            executable = Path(directory) / ("pw" + chr(27) + "[31mcrack")
+            executable.symlink_to(BIN)
+            result = subprocess.run([str(executable)], capture_output=True, check=False, timeout=10)
+            self.assertEqual(result.returncode, 2)
+            self.assertNotIn(bytes([27]), result.stderr)
+            self.assertEqual(result.stderr,
+                             b"Usage: pwcrack <64-character SHA-256 hex digest>\n")
 
     def test_extra_argument(self) -> None:
         result = run_cli(digest(b"sample"), b"sample\n", "extra")

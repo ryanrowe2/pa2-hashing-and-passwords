@@ -24,18 +24,35 @@ class ToolchainAuditTests(unittest.TestCase):
         fake = self.cwd / "fake"
         fake.mkdir()
         for file in ("parse-toolchain-lock.py", "audit-toolchain.sh",
-                     "install-toolchain.sh"):
+                     "install-toolchain.sh", "ubuntu-apt.sh"):
             shutil.copy2(ROOT / "ci" / file, self.cwd / "ci" / file)
         self.lock = self.cwd / "ci" / "toolchain.lock"
         self.set_lock()
         commands = {
             "sudo": """#!/bin/sh
-printf '%s\n' "$*" >> sudo.log
-if [ "${FAIL_SNAPSHOT:-}" = 1 ]; then
-  case "$*" in *--snapshot*) exit 26;; esac
-fi
-if [ "${FAIL_UPDATE:-}" = 1 ]; then exit 22; fi
-if [ "${FAIL_INSTALL:-}" = 1 ]; then exit 23; fi
+printf '%s\\n' "$*" >> sudo.log
+case "$*" in
+  *pa2-snapshot.list*' update '*|*pa2-snapshot.list*' update -qq'*)
+    if [ "${FAIL_SNAPSHOT_TIMEOUT:-}" = 1 ]; then exit 124; fi
+    if [ "${FAIL_SNAPSHOT:-}" = 1 ]; then
+      printf 'E: Failed to fetch https://snapshot.ubuntu.com/ubuntu/20261111T000000Z/dists/noble/InRelease  503  Service Unavailable\\n' >&2
+      if [ "${BAD_SIGNATURE:-}" = 1 ]; then echo 'NO_PUBKEY' >&2; fi
+      exit 26
+    fi
+    ;;
+esac
+case " $* " in
+  *' update '*)
+    if [ "${FAIL_UPDATE:-}" = 1 ]; then exit 22; fi
+    if [ "${PARTIAL_INDEX:-}" = 1 ]; then
+      printf 'W: Failed to fetch some package indexes (cached indexes used)\\n' >&2
+      case "$*" in *APT::Update::Error-Mode=any*) exit 100;; esac
+    fi
+    ;;
+  *' install '*)
+    if [ "${FAIL_INSTALL:-}" = 1 ]; then exit 23; fi
+    ;;
+esac
 exit 0
 """,
             "apt-cache": """#!/bin/sh
@@ -58,12 +75,12 @@ printf '%s' "${INSTALLED:-1.2.3}"
 
     def set_lock(self, missing=(), added=(), version="1.2.3"):
         lines = [f"{name}={version}" for name in PACKAGES if name not in missing]
-        self.lock.write_text("# test lock\n" + "\n".join([*lines, *added]) + "\n")
+        self.lock.write_text("# Ubuntu apt snapshot: 20261111T000000Z (UTC)\n" + "\n".join([*lines, *added]) + "\n")
 
     def command(self, name, **options):
         env = os.environ.copy()
         env["PATH"] = str(self.cwd / "fake") + os.pathsep + env["PATH"]
-        for k in ("FAIL_SNAPSHOT", "FAIL_UPDATE", "FAIL_INSTALL", "FAIL_POLICY",
+        for k in ("PA2_USE_SNAPSHOT", "FAIL_SNAPSHOT", "FAIL_SNAPSHOT_TIMEOUT", "BAD_SIGNATURE", "PARTIAL_INDEX", "FAIL_UPDATE", "FAIL_INSTALL", "FAIL_POLICY",
                   "FAIL_COMPARE", "FAIL_QUERY", "CANDIDATE", "INSTALLED"):
             env.pop(k, None)
         env.update(options)
@@ -88,15 +105,85 @@ printf '%s' "${INSTALLED:-1.2.3}"
             self.assertIn(f"{name}=1.2.3", text)
         self.assertIn(b"Validated 7 locked", x.stdout)
 
-    def test_snapshot_outage_uses_exact_pins_or_fails(self):
+    def test_normal_ci_install_does_not_depend_on_snapshot_cdn(self):
         x = self.command("install-toolchain", FAIL_SNAPSHOT="1")
         self.assertEqual(x.returncode, 0, x.stderr)
-        self.assertIn(b"retrying exact locked versions", x.stderr)
         log = (self.cwd / "sudo.log").read_text()
-        self.assertIn("--snapshot", log)
-        self.assertIn("apt-get -o APT::Update::Error-Mode=any", log)
+        self.assertNotIn("pa2-snapshot.list", log)
+        self.assertIn("pa2-current.list", log)
+
+    def test_snapshot_outage_uses_exact_pins_or_fails(self):
+        x = self.command("install-toolchain", PA2_USE_SNAPSHOT="1", FAIL_SNAPSHOT="1")
+        self.assertEqual(x.returncode, 0, x.stderr)
+        self.assertIn(b"retrying identical version pins", x.stderr)
+        log = (self.cwd / "sudo.log").read_text()
+        self.assertIn("pa2-snapshot.list", log)
+        self.assertIn("pa2-current.list", log)
+        self.assertIn("APT::Update::Error-Mode=any", log)
         for name in PACKAGES:
             self.assertIn(f"{name}=1.2.3", log)
+
+    def test_metadata_snapshot_is_single_authoritative_source(self):
+        args = [sys.executable, "ci/parse-toolchain-lock.py",
+                "--snapshot", "ci/toolchain.lock"]
+        x = subprocess.run(args, cwd=self.cwd, capture_output=True,
+                           check=False, timeout=10)
+        self.assertEqual(x.returncode, 0, x.stderr)
+        self.assertEqual(x.stdout, b"20261111T000000Z\n")
+        original = self.lock.read_text()
+        for modified in (
+            original.replace("# Ubuntu apt snapshot: 20261111T000000Z (UTC)\n", ""),
+            original.replace("20261111T000000Z", "20261311T000000Z"),
+            original.replace("20261111T000000Z", "20261111T250000Z"),
+            original + "# Ubuntu apt snapshot: 20261111T000000Z (UTC)\n",
+        ):
+            with self.subTest(modified=modified[-40:]):
+                self.lock.write_text(modified)
+                self.assertEqual(self.command("parse").returncode, 2)
+                self.assertEqual(self.command("install-toolchain").returncode, 2)
+        self.lock.write_text(original)
+
+    def test_partial_indexes_cannot_pass_update_audit(self):
+        result = self.command("audit-toolchain", PARTIAL_INDEX="1")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn(b"Incomplete Ubuntu package index refresh", result.stderr)
+        self.assertIn("APT::Update::Error-Mode=any",
+                      (self.cwd / "sudo.log").read_text())
+
+    def test_package_manager_audit_error_has_documented_status(self):
+        result = self.command("audit-toolchain", FAIL_UPDATE="1")
+        self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_bounded_snapshot_timeout_uses_only_exact_signed_fallback(self):
+        x = self.command("install-toolchain", PA2_USE_SNAPSHOT="1", FAIL_SNAPSHOT_TIMEOUT="1")
+        self.assertEqual(x.returncode, 0, x.stderr)
+        log = (self.cwd / "sudo.log").read_text()
+        self.assertIn("pa2-snapshot.list", log)
+        self.assertIn("pa2-current.list", log)
+        self.assertIn("Acquire::Languages=none", log)
+        for name in PACKAGES:
+            self.assertIn(f"{name}=1.2.3", log)
+
+    def test_snapshot_install_failure_never_activates_fallback(self):
+        result = self.command("install-toolchain", PA2_USE_SNAPSHOT="1", FAIL_INSTALL="1")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        log = (self.cwd / "sudo.log").read_text()
+        self.assertIn("pa2-snapshot.list", log)
+        self.assertNotIn("pa2-current.list", log)
+
+    def test_snapshot_authenticity_error_never_activates_fallback(self):
+        result = self.command("install-toolchain", PA2_USE_SNAPSHOT="1", FAIL_SNAPSHOT="1",
+                              BAD_SIGNATURE="1")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertNotIn("pa2-current.list", (self.cwd / "sudo.log").read_text())
+
+    def test_ubuntu_only_sources_are_hardcoded_and_signed(self):
+        helper = (self.cwd / "ci" / "ubuntu-apt.sh").read_text()
+        self.assertIn("ubuntu-archive-keyring.gpg", helper)
+        self.assertIn('sourceparts=-', helper)
+        self.assertIn("archive.ubuntu.com/ubuntu", helper)
+        self.assertIn("security.ubuntu.com/ubuntu", helper)
+        self.assertNotIn("packages.microsoft.com", helper)
 
     def test_audit_accepts_exact_full_inventory(self):
         x = self.command("audit-toolchain")
@@ -169,7 +256,9 @@ printf '%s' "${INSTALLED:-1.2.3}"
         for tool in ("audit-toolchain", "install-toolchain"):
             x = self.command(tool)
             self.assertEqual(x.returncode, 2, x.stderr)
-            self.assertIn(b"validation failed", x.stderr)
+            expected = (b"validation failed" if tool == "audit-toolchain"
+                        else b"Invalid toolchain lock")
+            self.assertIn(expected, x.stderr)
         self.assertFalse((self.cwd / "sudo.log").exists())
 
     def test_package_manager_failures_propagate(self):
