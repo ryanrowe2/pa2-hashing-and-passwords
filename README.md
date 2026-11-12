@@ -6,7 +6,7 @@ A compact, testable C11 program for verifying locally supplied candidate strings
 
 ## Build and run
 
-Requires a C11 compiler, make, OpenSSL development headers/libcrypto, and Python 3 for integration tests.
+Supported build environment: Linux (Ubuntu 24.04 in CI), GNU Make, util-linux `flock`, a C11 compiler (GCC or Clang), OpenSSL development headers/libcrypto, and Python 3 for integration tests. Fault-injection test builds additionally use the GNU/ELF linker `--wrap` option.
 
 ```sh
 make
@@ -72,4 +72,4 @@ Recommended repository description: **C11 SHA-256 candidate verification with de
 
 ## Maintenance and workflow policy
 
-Standard CI runs on pull requests and on pushes to `main`, avoiding duplicate feature-branch CI. New regression tests cover an interrupted/failed compiler and early argument errors with closed stderr pipes. A [scheduled toolchain update check](.github/workflows/toolchain-review.yml) checks newer available Ubuntu packages every Monday; see [the toolchain maintenance policy](ci/TOOLCHAIN.md) for the review and update procedure. Toolchain review failures indicate packages to inspect, not necessarily security vulnerabilities.
+Make inspection options (`-n`/`--just-print` and `-q`/`--question`) inspect the build without acquiring the build lock or changing generated files. Standard CI runs on pull requests and on pushes to `main`, avoiding duplicate feature-branch CI. New regression tests cover an interrupted/failed compiler and early argument errors with closed stderr pipes. A [toolchain update check](.github/workflows/toolchain-review.yml) checks newer available Ubuntu packages every Monday and validates the monitoring workflow on changes to its configuration; see [the toolchain maintenance policy](ci/TOOLCHAIN.md) for the review and update procedure. Toolchain review failures indicate packages to inspect, not necessarily security vulnerabilities.

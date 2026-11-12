@@ -175,6 +175,10 @@ class CLITests(unittest.TestCase):
                 process.kill()
             if process.stdin is not None:
                 process.stdin.close()
+            if process.stdout is not None:
+                process.stdout.close()
+            if process.stderr is not None:
+                process.stderr.close()
             process.wait(timeout=3)
 
     def test_terminal_control_bytes_escaped(self) -> None:
