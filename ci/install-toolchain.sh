@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install exactly locked Ubuntu 24.04 toolchain packages, using signed Ubuntu
-# sources only. A 502/503/504 snapshot index outage permits current-archive
+# sources only. A 502/503/504 snapshot index outage or bounded availability timeout permits current-archive
 # fallback; other failures must not be silently reclassified as outages.
 set -euo pipefail
 source ci/ubuntu-apt.sh
@@ -16,12 +16,14 @@ mapfile -t packages <<< "$validated_lock"
 pa2_apt_select snapshot "$snapshot"
 
 update_log="$PA2_APT_DIR/snapshot-update.stderr"
-if sudo apt-get "${PA2_APT_OPTIONS[@]}" update -qq 2> "$update_log"; then
+if timeout --signal=TERM --kill-after=5s 30s \
+     sudo apt-get "${PA2_APT_OPTIONS[@]}" update -qq 2> "$update_log"; then
   source_used="Ubuntu snapshot $snapshot"
 else
   update_status=$?
   cat "$update_log" >&2
-  if grep -Eq 'Failed to fetch https://snapshot\.ubuntu\.com/ubuntu/.* (502|503|504) ' "$update_log" &&
+  if { [[ "$update_status" -eq 124 ]] ||
+       grep -Eq 'Failed to fetch https://snapshot\.ubuntu\.com/ubuntu/.* (502|503|504) ' "$update_log"; } &&
      ! grep -Eiq '(NO_PUBKEY|BADSIG|Hash Sum mismatch|not signed|does not have a Release file)' "$update_log"; then
     printf '::warning::Ubuntu snapshot availability error; retrying identical version pins from signed Ubuntu archives\n' >&2
     pa2_apt_select current "$snapshot"
