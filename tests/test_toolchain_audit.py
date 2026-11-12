@@ -33,6 +33,7 @@ class ToolchainAuditTests(unittest.TestCase):
 printf '%s\\n' "$*" >> sudo.log
 case "$*" in
   *pa2-snapshot.list*' update '*|*pa2-snapshot.list*' update -qq'*)
+    if [ "${FAIL_SNAPSHOT_TIMEOUT:-}" = 1 ]; then exit 124; fi
     if [ "${FAIL_SNAPSHOT:-}" = 1 ]; then
       printf 'E: Failed to fetch https://snapshot.ubuntu.com/ubuntu/20261111T000000Z/dists/noble/InRelease  503  Service Unavailable\\n' >&2
       if [ "${BAD_SIGNATURE:-}" = 1 ]; then echo 'NO_PUBKEY' >&2; fi
@@ -79,7 +80,7 @@ printf '%s' "${INSTALLED:-1.2.3}"
     def command(self, name, **options):
         env = os.environ.copy()
         env["PATH"] = str(self.cwd / "fake") + os.pathsep + env["PATH"]
-        for k in ("FAIL_SNAPSHOT", "BAD_SIGNATURE", "PARTIAL_INDEX", "FAIL_UPDATE", "FAIL_INSTALL", "FAIL_POLICY",
+        for k in ("FAIL_SNAPSHOT", "FAIL_SNAPSHOT_TIMEOUT", "BAD_SIGNATURE", "PARTIAL_INDEX", "FAIL_UPDATE", "FAIL_INSTALL", "FAIL_POLICY",
                   "FAIL_COMPARE", "FAIL_QUERY", "CANDIDATE", "INSTALLED"):
             env.pop(k, None)
         env.update(options)
@@ -145,6 +146,16 @@ printf '%s' "${INSTALLED:-1.2.3}"
     def test_package_manager_audit_error_has_documented_status(self):
         result = self.command("audit-toolchain", FAIL_UPDATE="1")
         self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_bounded_snapshot_timeout_uses_only_exact_signed_fallback(self):
+        x = self.command("install-toolchain", FAIL_SNAPSHOT_TIMEOUT="1")
+        self.assertEqual(x.returncode, 0, x.stderr)
+        log = (self.cwd / "sudo.log").read_text()
+        self.assertIn("pa2-snapshot.list", log)
+        self.assertIn("pa2-current.list", log)
+        self.assertIn("Acquire::Languages=none", log)
+        for name in PACKAGES:
+            self.assertIn(f"{name}=1.2.3", log)
 
     def test_snapshot_install_failure_never_activates_fallback(self):
         result = self.command("install-toolchain", FAIL_INSTALL="1")
