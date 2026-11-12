@@ -16,6 +16,14 @@ CFLAGS += $(SAN_FLAGS)
 LDFLAGS += -fsanitize=address,undefined
 endif
 
+# Inspection modes (-n/--just-print and -q/--question) must not acquire a
+# build lock or invoke recipes. GNU Make places compact short switches first
+# in MAKEFLAGS; ignore long options and -j arguments when detecting them.
+PA2_SHORT_FLAGS := $(filter-out -%,$(firstword $(MAKEFLAGS)))
+ifneq ($(findstring n,$(PA2_SHORT_FLAGS))$(findstring q,$(PA2_SHORT_FLAGS)),)
+PA2_BUILD_SERIALIZED := 1
+endif
+
 # Serialize independent Make processes across all public build entry points.
 # Hold the lock over config-stamp updates, compilation and tests, not merely
 # individual recipes. Keep the lock outside build/ so clean cannot unlink it.
@@ -66,7 +74,7 @@ $(FAULT_CLI): tests/sha256_fail.c src/main.c src/pwcrack.c include/pwcrack.h Mak
 test: $(BIN) $(UNIT) $(FAULT) $(FAULT_CLI)
 	./$(UNIT)
 	./$(FAULT)
-	env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u PA2_BUILD_SERIALIZED PWCRACK_BIN=./$(BIN) PWCRACK_FAULT_BIN=./$(FAULT_CLI) python3 -m unittest discover -s tests -p 'test_*.py' -v
+	env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u PA2_BUILD_SERIALIZED PWCRACK_BIN=./$(BIN) PWCRACK_FAULT_BIN=./$(FAULT_CLI) python3 -W error::ResourceWarning -m unittest discover -s tests -p 'test_*.py' -v
 
 bench: $(BIN)
 	PWCRACK_BIN=./$(BIN) python3 tests/benchmark.py
