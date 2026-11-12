@@ -1,0 +1,11 @@
+# CI package lock for GitHub-hosted Ubuntu 24.04 amd64.
+# Ubuntu apt snapshot: 20261111T000000Z (UTC)
+# Regenerate/update these together with the snapshot date, using an audited CI run.
+# Format: NAME=DEBIAN_VERSION (one package per line).
+build-essential=12.10ubuntu1
+gcc=4:13.2.0-7ubuntu1
+gcc-13=13.3.0-6ubuntu2~24.04.1
+clang=1:18.0-59~exp2
+clang-18=1:18.1.3-1ubuntu1
+libssl-dev=3.0.13-0ubuntu3.16
+python3=3.12.3-0ubuntu2.1
