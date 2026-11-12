@@ -15,10 +15,17 @@ jobs:
       matrix:
         compiler: [gcc, clang]
     steps:
-      # actions/checkout v4.2.2 (immutable reviewed commit)
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      # actions/checkout v7.0.1, pinned to its immutable release commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install Ubuntu toolchain dependencies
         run: sudo apt-get update && sudo apt-get install -y build-essential clang libssl-dev python3
+      - name: Record environment dependency versions
+        run: |
+          gcc --version | head -n 1
+          clang --version | head -n 1
+          python3 --version
+          openssl version
+          dpkg-query -W -f='${Package} ${Version}\n' build-essential clang libssl-dev python3
       - name: Build and test
         run: make CC=${{ matrix.compiler }} test
       - name: Static analysis (Clang)
@@ -35,6 +42,10 @@ jobs:
           grep -q -- '-fsanitize=address,undefined' /tmp/rebuild-sanitizer.log
           make CC=clang build/pwcrack | tee /tmp/rebuild-clang.log
           grep -q '^clang ' /tmp/rebuild-clang.log
+          sleep 1
+          touch Makefile
+          make CC=clang build/pwcrack | tee /tmp/rebuild-makefile.log
+          grep -q '^clang ' /tmp/rebuild-makefile.log
       - name: Sanitizers (Clang)
         if: matrix.compiler == 'clang'
         run: make CC=clang SANITIZE=1 test

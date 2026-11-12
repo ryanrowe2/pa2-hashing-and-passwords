@@ -14,6 +14,18 @@ def digest(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def escape_output(candidate: bytes) -> bytes:
+    output = bytearray()
+    for byte in candidate:
+        if byte == 92:
+            output.extend(b"\\\\")
+        elif byte < 32 or byte > 126:
+            output.extend(f"\\x{byte:02X}".encode("ascii"))
+        else:
+            output.append(byte)
+    return bytes(output)
+
+
 def run_cli(target: str, candidates: bytes = b"", *extra: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [str(BIN), target, *extra],
@@ -33,7 +45,7 @@ class CLITests(unittest.TestCase):
         self.assertEqual(result.stderr, b"")
         self.assertEqual(
             result.stdout,
-            b"Found password: SHA256(" + expected + b") = " + h.encode() + b"\n",
+            b"Found password: SHA256(" + escape_output(expected) + b") = " + h.encode() + b"\n",
         )
 
     def test_exact_match(self) -> None:
@@ -127,6 +139,62 @@ class CLITests(unittest.TestCase):
 
     def test_utf8_candidate(self) -> None:
         self.assert_match("caféA".encode(), "caféa".encode() + b"\n", "caféA".encode())
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX pipes")
+    def test_closed_stdout_pipe_is_handled_as_error(self) -> None:
+        reader, writer = os.pipe()
+        os.close(reader)
+        try:
+            result = subprocess.run(
+                [str(BIN), digest(b"hello")], input=b"hello\n",
+                stdout=writer, stderr=subprocess.PIPE, check=False, timeout=10,
+            )
+        finally:
+            os.close(writer)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn(b"unable to write standard output", result.stderr)
+
+    def test_streaming_oversized_line_rejected_before_eof(self) -> None:
+        process = subprocess.Popen(
+            [str(BIN), digest(b"irrelevant")], stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        try:
+            assert process.stdin is not None
+            process.stdin.write(b"x" * 1024)
+            process.stdin.flush()
+            try:
+                code = process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.fail("oversized input was not rejected before EOF")
+            self.assertEqual(code, 2)
+            assert process.stderr is not None
+            self.assertIn(b"exceeds 1023", process.stderr.read())
+        finally:
+            if process.poll() is None:
+                process.kill()
+            if process.stdin is not None:
+                process.stdin.close()
+            process.wait(timeout=3)
+
+    def test_terminal_control_bytes_escaped(self) -> None:
+        raw = b"head\x1b[31m\r\t\\tail"
+        result = run_cli(digest(raw), raw + b"\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout,
+            b"Found password: SHA256(head\\x1B[31m\\x0D\\x09\\\\tail) = "
+            + digest(raw).encode() + b"\n",
+        )
+        self.assertNotIn(b"\x1b", result.stdout)
+        self.assertNotIn(b"\r", result.stdout)
+
+    def test_non_ascii_bytes_are_escaped(self) -> None:
+        raw = "caf\u00e9".encode("utf-8")
+        result = run_cli(digest(raw), raw + b"\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(b"SHA256(caf\\xC3\\xA9)", result.stdout)
+        self.assertTrue(result.stdout.isascii())
 
     @unittest.skipUnless(os.path.exists("/dev/full"), "requires /dev/full")
     def test_stdout_failure_on_match(self) -> None:

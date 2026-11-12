@@ -1,6 +1,7 @@
 #include "pwcrack.h"
 
 #include <stdio.h>
+#include <signal.h>
 
 /* Report buffered output failures, including errors during the final flush. */
 static int finish_output(int write_ok) {
@@ -15,8 +16,8 @@ static int finish_output(int write_ok) {
     return 0;
 }
 
-/* The reader consumes one complete line, including when it is invalid.
-   It never treats fragments of an oversized line as separate candidates. */
+/* Read a complete valid line. Reject the first invalid byte immediately,
+   without waiting indefinitely for a newline or treating fragments as lines. */
 enum read_status {
     READ_OK,
     READ_EOF,
@@ -31,8 +32,6 @@ static enum read_status read_candidate(FILE *input,
     size_t count = 0;
     int ch;
     int seen = 0;
-    int too_long = 0;
-    int contains_nul = 0;
 
     while ((ch = fgetc(input)) != EOF) {
         seen = 1;
@@ -40,13 +39,12 @@ static enum read_status read_candidate(FILE *input,
             break;
         }
         if (ch == 0) {
-            contains_nul = 1;
+            return READ_NUL;
         }
-        if (count < PWCRACK_MAX_CANDIDATE_BYTES) {
-            candidate[count++] = (char)ch;
-        } else {
-            too_long = 1;
+        if (count == PWCRACK_MAX_CANDIDATE_BYTES) {
+            return READ_TOO_LONG;
         }
+        candidate[count++] = (char)ch;
     }
     if (ferror(input)) {
         return READ_ERROR;
@@ -54,15 +52,29 @@ static enum read_status read_candidate(FILE *input,
     if (!seen && ch == EOF) {
         return READ_EOF;
     }
-    if (too_long) {
-        return READ_TOO_LONG;
-    }
-    if (contains_nul) {
-        return READ_NUL;
-    }
     candidate[count] = '\0';
     *length = count;
     return READ_OK;
+}
+
+/* Display bytes without allowing terminal control-sequence interpretation.
+   Non-ASCII bytes use \xHH escapes; backslashes are doubled for reversibility. */
+static int print_escaped_candidate(const char *candidate, size_t length) {
+    for (size_t i = 0; i < length; ++i) {
+        unsigned char byte = (unsigned char)candidate[i];
+        if (byte == '\\') {
+            if (fputs("\\\\", stdout) == EOF) {
+                return 0;
+            }
+        } else if (byte < 0x20u || byte > 0x7eu) {
+            if (printf("\\x%02X", (unsigned int)byte) < 0) {
+                return 0;
+            }
+        } else if (fputc((int)byte, stdout) == EOF) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 int main(int argc, char **argv) {
@@ -76,6 +88,14 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Error: expected exactly 64 ASCII hexadecimal characters\n");
         return 2;
     }
+
+#ifdef SIGPIPE
+    /* Convert broken pipes into checked EPIPE output failures on POSIX. */
+    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
+        perror("Error: unable to configure broken-pipe handling");
+        return 2;
+    }
+#endif
 
     char candidate[PWCRACK_MAX_CANDIDATE_BYTES + 1u];
     size_t length = 0;
@@ -107,8 +127,14 @@ int main(int argc, char **argv) {
             return 2;
         }
         if (match == 1) {
-            return finish_output(printf("Found password: SHA256(%s) = %s\n",
-                                        candidate, argv[1]) >= 0);
+            int write_ok = fputs("Found password: SHA256(", stdout) != EOF;
+            if (write_ok) {
+                write_ok = print_escaped_candidate(candidate, length);
+            }
+            if (write_ok) {
+                write_ok = printf(") = %s\n", argv[1]) >= 0;
+            }
+            return finish_output(write_ok);
         }
     }
 
