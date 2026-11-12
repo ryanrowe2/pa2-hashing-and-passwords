@@ -66,7 +66,7 @@ $(FAULT_CLI): tests/sha256_fail.c src/main.c src/pwcrack.c include/pwcrack.h Mak
 test: $(BIN) $(UNIT) $(FAULT) $(FAULT_CLI)
 	./$(UNIT)
 	./$(FAULT)
-	PWCRACK_BIN=./$(BIN) PWCRACK_FAULT_BIN=./$(FAULT_CLI) python3 -m unittest discover -s tests -p 'test_*.py' -v
+	env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u PA2_BUILD_SERIALIZED PWCRACK_BIN=./$(BIN) PWCRACK_FAULT_BIN=./$(FAULT_CLI) python3 -m unittest discover -s tests -p 'test_*.py' -v
 
 bench: $(BIN)
 	PWCRACK_BIN=./$(BIN) python3 tests/benchmark.py
