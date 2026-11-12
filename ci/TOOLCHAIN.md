@@ -4,7 +4,7 @@ The application CI installs Ubuntu 24.04 toolchain packages from the dated APT s
 
 ## Weekly monitoring
 
-[The automated toolchain review workflow](../.github/workflows/toolchain-review.yml) runs every Monday at 09:23 UTC and is also manually dispatchable. It checks recent versions available in the Ubuntu apt repositories against each pinned version. Newer candidates cause an annotated failure; this is an update-availability signal, not a vulnerability scan. Ubuntu runner and GitHub Actions update notices should also be reviewed.
+[The automated toolchain review workflow](../.github/workflows/toolchain-review.yml) runs every Monday at 09:23 UTC and is also manually dispatchable. It checks recent versions available in the Ubuntu apt repositories against each pinned version. Newer candidates cause an annotated failure; this is an update-availability signal, not a vulnerability scan. The review also fails on missing, empty, malformed, or duplicate entries in the lockfile, unavailable package metadata, and version-comparison errors. Exit status 0 means every tracked package was checked and no newer candidate was found; exit status 1 signals an available update; exit status 2 signals a validation or comparison failure. Ubuntu runner and GitHub Actions update notices should also be reviewed.
 
 ## Updating safely
 
@@ -15,3 +15,7 @@ The application CI installs Ubuntu 24.04 toolchain packages from the dated APT s
 5. Merge only after validation, confirm default-branch CI passes, and review the next weekly audit.
 
 Document any accepted exceptions or deferrals instead of silently disabling the review.
+
+## Offline regression checks
+
+Run `python3 -m unittest tests/test_toolchain_audit.py -v` to exercise update-availability and error paths using local mock commands without contacting APT repositories. These checks also run automatically in the main C build-and-test GitHub Actions workflow.
