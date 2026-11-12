@@ -238,7 +238,7 @@ printf '%s' "${INSTALLED:-1.2.3}"
         for tool in ("audit-toolchain", "install-toolchain"):
             x = self.command(tool)
             self.assertEqual(x.returncode, 2, x.stderr)
-            self.assertIn(b"validation failed", x.stderr)
+            self.assertIn(b"Invalid toolchain lock", x.stderr)
         self.assertFalse((self.cwd / "sudo.log").exists())
 
     def test_package_manager_failures_propagate(self):
