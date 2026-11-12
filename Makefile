@@ -21,6 +21,7 @@ endif
 # in MAKEFLAGS; ignore long options and -j arguments when detecting them.
 PA2_SHORT_FLAGS := $(filter-out -%,$(firstword $(MAKEFLAGS)))
 ifneq ($(findstring n,$(PA2_SHORT_FLAGS))$(findstring q,$(PA2_SHORT_FLAGS)),)
+PA2_INSPECTION_MODE := 1
 PA2_BUILD_SERIALIZED := 1
 endif
 
@@ -39,7 +40,21 @@ build:
 
 # Rebuild when compiler or effective flags change, even without source edits.
 # Only replace the config stamp if its contents actually differ.
-$(CONFIG): FORCE | build
+# During dry-run/question mode, compare the desired settings read-only:
+# unconditional FORCE would incorrectly report a fresh binary as outdated.
+ifeq ($(PA2_INSPECTION_MODE),1)
+PA2_CONFIG_MATCHES := $(shell test -f '$(CONFIG)' && \
+    printf '%s\n' 'CC=$(CC)' 'CPPFLAGS=$(CPPFLAGS)' 'CFLAGS=$(CFLAGS)' 'LDFLAGS=$(LDFLAGS)' 'LDLIBS=$(LDLIBS)' | cmp -s - '$(CONFIG)' && echo yes)
+ifeq ($(PA2_CONFIG_MATCHES),yes)
+PA2_CONFIG_FORCE :=
+else
+PA2_CONFIG_FORCE := FORCE
+endif
+else
+PA2_CONFIG_FORCE := FORCE
+endif
+
+$(CONFIG): $(PA2_CONFIG_FORCE) | build
 	@set -eu; \
 		tmp="$@.tmp.$$$$"; \
 		trap 'rm -f "$$tmp"' EXIT HUP INT TERM; \

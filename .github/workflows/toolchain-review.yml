@@ -9,12 +9,14 @@ on:
       - '.github/workflows/toolchain-review.yml'
       - 'ci/audit-toolchain.sh'
       - 'ci/toolchain.lock'
+      - 'ci/install-toolchain.sh'
   push:
     branches: [main]
     paths:
       - '.github/workflows/toolchain-review.yml'
       - 'ci/audit-toolchain.sh'
       - 'ci/toolchain.lock'
+      - 'ci/install-toolchain.sh'
 
 permissions:
   contents: read
