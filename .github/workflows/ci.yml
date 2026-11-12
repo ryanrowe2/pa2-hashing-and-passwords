@@ -2,6 +2,7 @@ name: C build and tests
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -37,15 +38,15 @@ jobs:
         run: |
           set -euo pipefail
           make CC=gcc build/pwcrack | tee /tmp/rebuild-gcc.log
-          grep -q '^gcc ' /tmp/rebuild-gcc.log
+          grep -q 'with gcc ' /tmp/rebuild-gcc.log
           make CC=clang SANITIZE=1 build/pwcrack | tee /tmp/rebuild-sanitizer.log
           grep -q -- '-fsanitize=address,undefined' /tmp/rebuild-sanitizer.log
           make CC=clang build/pwcrack | tee /tmp/rebuild-clang.log
-          grep -q '^clang ' /tmp/rebuild-clang.log
+          grep -q 'with clang ' /tmp/rebuild-clang.log
           sleep 1
           touch Makefile
           make CC=clang build/pwcrack | tee /tmp/rebuild-makefile.log
-          grep -q '^clang ' /tmp/rebuild-makefile.log
+          grep -q 'with clang ' /tmp/rebuild-makefile.log
       - name: Sanitizers (Clang)
         if: matrix.compiler == 'clang'
         run: make CC=clang SANITIZE=1 test
