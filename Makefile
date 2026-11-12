@@ -20,6 +20,12 @@ endif
 # build lock or invoke recipes. GNU Make places compact short switches first
 # in MAKEFLAGS; ignore long options and -j arguments when detecting them.
 PA2_SHORT_FLAGS := $(filter-out -%,$(firstword $(MAKEFLAGS)))
+# GNU Make -t/--touch can create an empty executable, or a regular file
+# named build instead of the required directory, poisoning future builds.
+# Refuse this mode before Make mutates any target.
+ifneq ($(findstring t,$(PA2_SHORT_FLAGS)),)
+$(error GNU Make -t/--touch is unsupported: use normal make to build valid artifacts)
+endif
 ifneq ($(findstring n,$(PA2_SHORT_FLAGS))$(findstring q,$(PA2_SHORT_FLAGS)),)
 PA2_INSPECTION_MODE := 1
 PA2_BUILD_SERIALIZED := 1
