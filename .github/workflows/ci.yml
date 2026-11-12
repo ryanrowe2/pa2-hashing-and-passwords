@@ -18,15 +18,13 @@ jobs:
     steps:
       # actions/checkout v7.0.1, pinned to its immutable release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Enforce toolchain-update review in required GCC check
+        if: matrix.compiler == 'gcc'
+        run: bash ci/audit-toolchain.sh
       - name: Install locked Ubuntu toolchain
         run: bash ci/install-toolchain.sh
-      - name: Record environment dependency versions
-        run: |
-          gcc --version | head -n 1
-          clang --version | head -n 1
-          python3 --version
-          openssl version
-          dpkg-query -W -f='${Package} ${Version}\n' build-essential clang libssl-dev python3
+      - name: Record full installed-package manifest and fingerprint
+        run: bash ci/record-environment.sh
       - name: Build and test
         run: make CC=${{ matrix.compiler }} test
       - name: Static analysis (Clang)

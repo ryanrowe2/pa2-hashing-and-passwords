@@ -31,6 +31,9 @@ class ToolchainAuditTests(unittest.TestCase):
         commands = {
             "sudo": """#!/bin/sh
 printf '%s\n' "$*" >> sudo.log
+if [ "${FAIL_SNAPSHOT:-}" = 1 ]; then
+  case "$*" in *--snapshot*) exit 26;; esac
+fi
 if [ "${FAIL_UPDATE:-}" = 1 ]; then exit 22; fi
 if [ "${FAIL_INSTALL:-}" = 1 ]; then exit 23; fi
 exit 0
@@ -60,7 +63,7 @@ printf '%s' "${INSTALLED:-1.2.3}"
     def command(self, name, **options):
         env = os.environ.copy()
         env["PATH"] = str(self.cwd / "fake") + os.pathsep + env["PATH"]
-        for k in ("FAIL_UPDATE", "FAIL_INSTALL", "FAIL_POLICY",
+        for k in ("FAIL_SNAPSHOT", "FAIL_UPDATE", "FAIL_INSTALL", "FAIL_POLICY",
                   "FAIL_COMPARE", "FAIL_QUERY", "CANDIDATE", "INSTALLED"):
             env.pop(k, None)
         env.update(options)
@@ -84,6 +87,16 @@ printf '%s' "${INSTALLED:-1.2.3}"
         for name in PACKAGES:
             self.assertIn(f"{name}=1.2.3", text)
         self.assertIn(b"Validated 7 locked", x.stdout)
+
+    def test_snapshot_outage_uses_exact_pins_or_fails(self):
+        x = self.command("install-toolchain", FAIL_SNAPSHOT="1")
+        self.assertEqual(x.returncode, 0, x.stderr)
+        self.assertIn(b"retrying exact locked versions", x.stderr)
+        log = (self.cwd / "sudo.log").read_text()
+        self.assertIn("--snapshot", log)
+        self.assertIn("apt-get -o APT::Update::Error-Mode=any", log)
+        for name in PACKAGES:
+            self.assertIn(f"{name}=1.2.3", log)
 
     def test_audit_accepts_exact_full_inventory(self):
         x = self.command("audit-toolchain")
