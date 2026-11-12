@@ -1,44 +1,60 @@
 #!/usr/bin/env bash
-# Install reproducible Ubuntu 24.04 toolchain versions for CI.
+# Install exactly locked Ubuntu 24.04 toolchain packages, using signed Ubuntu
+# sources only. A 502/503/504 snapshot index outage permits current-archive
+# fallback; other failures must not be silently reclassified as outages.
 set -euo pipefail
+source ci/ubuntu-apt.sh
+pa2_apt_init
+trap pa2_apt_cleanup EXIT
 
-snapshot=20261111T000000Z
-# Capture the parser's exit status. Process substitution would hide failures and
-# could install a truncated package inventory after a partial read.
-if ! validated_lock=$(python3 ci/parse-toolchain-lock.py ci/toolchain.lock); then
-  printf '::error::Toolchain lock validation failed; refusing installation\n' >&2
+if ! validated_lock=$(python3 ci/parse-toolchain-lock.py ci/toolchain.lock) ||
+   ! snapshot=$(python3 ci/parse-toolchain-lock.py --snapshot ci/toolchain.lock); then
+  printf '::error::Invalid toolchain lock; refusing installation\n' >&2
   exit 2
 fi
 mapfile -t packages <<< "$validated_lock"
+pa2_apt_select snapshot "$snapshot"
 
-# Prefer the dated Ubuntu snapshot, but never accept an apt-get update that
-# only succeeded because APT ignored failed snapshot indexes (e.g. HTTP 503).
-# If the snapshot endpoint is unavailable, permit the normal signed Ubuntu
-# repositories only when they can supply every EXACT locked version.
-source_used="Ubuntu snapshot $snapshot"
-if sudo apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=3 \
-     --snapshot "$snapshot" update && \
-   sudo DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 \
-     --snapshot "$snapshot" install -y --no-install-recommends \
-     --allow-downgrades "${packages[@]}"; then
-  :
+update_log="$PA2_APT_DIR/snapshot-update.stderr"
+if sudo apt-get "${PA2_APT_OPTIONS[@]}" update -qq 2> "$update_log"; then
+  source_used="Ubuntu snapshot $snapshot"
 else
-  printf '::warning::Ubuntu snapshot unavailable; retrying exact locked versions from configured signed repositories\n' >&2
-  sudo apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=3 update
-  sudo DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 install \
-    -y --no-install-recommends --allow-downgrades "${packages[@]}"
-  source_used="configured signed Ubuntu repositories (exact locked versions)"
+  update_status=$?
+  cat "$update_log" >&2
+  if grep -Eq 'Failed to fetch https://snapshot\.ubuntu\.com/ubuntu/.* (502|503|504) ' "$update_log" &&
+     ! grep -Eiq '(NO_PUBKEY|BADSIG|Hash Sum mismatch|not signed|does not have a Release file)' "$update_log"; then
+    printf '::warning::Ubuntu snapshot availability error; retrying identical version pins from signed Ubuntu archives\n' >&2
+    pa2_apt_select current "$snapshot"
+    if ! sudo apt-get "${PA2_APT_OPTIONS[@]}" update -qq; then
+      printf '::error::Current Ubuntu archive index refresh failed\n' >&2
+      exit 2
+    fi
+    source_used="signed Ubuntu archives (snapshot unavailable)"
+  else
+    printf '::error::Snapshot refresh failed (exit %s); no fallback permitted\n' "$update_status" >&2
+    exit 2
+  fi
 fi
 
-# Fail loudly if an updated runner image invalidates the package lock.
+# Installation failure is never an outage signal. Do not retry from a
+# different source after a signed package install or integrity error.
+if ! sudo DEBIAN_FRONTEND=noninteractive apt-get "${PA2_APT_OPTIONS[@]}" install \
+      -y --no-install-recommends --allow-downgrades "${packages[@]}"; then
+  printf '::error::Installation of exact locked versions failed\n' >&2
+  exit 2
+fi
+
 for spec in "${packages[@]}"; do
   name=${spec%%=*}
   expected=${spec#*=}
-  actual=$(dpkg-query --show --showformat='${Version}' "$name")
+  if ! actual=$(dpkg-query --show --showformat='${Version}' "$name"); then
+    printf '::error::Missing installed package %s\n' "$name" >&2
+    exit 2
+  fi
   if [[ "$actual" != "$expected" ]]; then
-    printf 'Package version mismatch: %s expected %s, found %s\n' \
+    printf '::error::Package version mismatch: %s expected %s, found %s\n' \
       "$name" "$expected" "$actual" >&2
-    exit 1
+    exit 2
   fi
 done
 printf 'Validated %d locked package versions using %s\n' \
