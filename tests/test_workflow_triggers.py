@@ -76,7 +76,7 @@ class ToolchainWorkflowTriggerTests(unittest.TestCase):
     def test_ci_records_full_installed_environment_and_executable_origins(self):
         ci = CI.read_text(encoding="utf-8")
         self.assertIn("run: bash ci/record-environment.sh", ci)
-        self.assertIn("ldd build/pwcrack", ci)
+        self.assertIn("python3 ci/verify-libcrypto.py build/pwcrack", ci)
         script = (ROOT / "ci" / "record-environment.sh").read_text(encoding="utf-8")
         for required in ("dpkg-query -W", "dpkg-query -S",
                          "sha256sum", "assert_version", "libssl3t64"):
