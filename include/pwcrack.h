@@ -12,7 +12,8 @@
 int parse_sha256_hex(const char *hex, unsigned char digest[SHA256_DIGEST_LENGTH]);
 
 /* Check the candidate and each possible single ASCII letter case flip.
-   Return 1 on a match, 0 for no match, or -1 on a hashing error.
+   Return 1 on a match, 0 for no match, or -1 for invalid arguments,
+   lengths above PWCRACK_MAX_CANDIDATE_BYTES, or a hashing error.
    On success, the candidate contains the matching variation; on failure,
    it remains unchanged. Length counts bytes, excluding the terminating NUL. */
 int find_sha256_candidate(char *candidate, size_t length,

@@ -9,7 +9,7 @@ Both the installer and weekly audit validate package entries and the single auth
 ## Updating safely
 
 1. Review the workflow failure or relevant Ubuntu security advisory. Determine the appropriate available and supported versions for each affected package.
-2. Select a UTC APT snapshot timestamp containing the desired packages. Change `snapshot` in `ci/install-toolchain.sh` and the matching timestamp comment in `ci/toolchain.lock` together.
+2. Select a UTC APT snapshot timestamp containing the desired packages. Update the authoritative `# Ubuntu apt snapshot: ... (UTC)` header in `ci/toolchain.lock`; `ci/parse-toolchain-lock.py` supplies that timestamp to the optional snapshot installer. There is no separate snapshot variable to edit in `ci/install-toolchain.sh`.
 3. Update the exact Debian versions in `ci/toolchain.lock` and review direct and transitive dependencies. Document the rationale in the PR description.
 4. Open a PR. Allow both `quality (gcc)` and `quality (clang)` to pass, including fault-injection tests, static analysis, and sanitizer builds.
 5. Merge only after validation, confirm default-branch CI passes, and review the next weekly audit.

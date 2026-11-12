@@ -44,13 +44,13 @@ all: $(BIN)
 build:
 	mkdir -p build
 
-# Rebuild when compiler or effective flags change, even without source edits.
+# Rebuild when compiler or effective flags (including fault-injection link flags)\n# change, even without source edits.
 # Only replace the config stamp if its contents actually differ.
 # During dry-run/question mode, compare the desired settings read-only:
 # unconditional FORCE would incorrectly report a fresh binary as outdated.
 ifeq ($(PA2_INSPECTION_MODE),1)
 PA2_CONFIG_MATCHES := $(shell test -f '$(CONFIG)' && \
-    printf '%s\n' 'CC=$(CC)' 'CPPFLAGS=$(CPPFLAGS)' 'CFLAGS=$(CFLAGS)' 'LDFLAGS=$(LDFLAGS)' 'LDLIBS=$(LDLIBS)' | cmp -s - '$(CONFIG)' && echo yes)
+    printf '%s\n' 'CC=$(CC)' 'CPPFLAGS=$(CPPFLAGS)' 'CFLAGS=$(CFLAGS)' 'LDFLAGS=$(LDFLAGS)' 'LDLIBS=$(LDLIBS)' 'WRAP_SHA256=$(WRAP_SHA256)' | cmp -s - '$(CONFIG)' && echo yes)
 ifeq ($(PA2_CONFIG_MATCHES),yes)
 PA2_CONFIG_FORCE :=
 else
@@ -64,7 +64,7 @@ $(CONFIG): $(PA2_CONFIG_FORCE) | build
 	@set -eu; \
 		tmp="$@.tmp.$$$$"; \
 		trap 'rm -f "$$tmp"' EXIT HUP INT TERM; \
-		printf '%s\n' 'CC=$(CC)' 'CPPFLAGS=$(CPPFLAGS)' 'CFLAGS=$(CFLAGS)' 'LDFLAGS=$(LDFLAGS)' 'LDLIBS=$(LDLIBS)' > "$$tmp"; \
+		printf '%s\n' 'CC=$(CC)' 'CPPFLAGS=$(CPPFLAGS)' 'CFLAGS=$(CFLAGS)' 'LDFLAGS=$(LDFLAGS)' 'LDLIBS=$(LDLIBS)' 'WRAP_SHA256=$(WRAP_SHA256)' > "$$tmp"; \
 		if ! cmp -s "$$tmp" "$@"; then mv -f "$$tmp" "$@"; fi
 
 FORCE:

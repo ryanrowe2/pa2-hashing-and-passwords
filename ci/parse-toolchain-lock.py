@@ -22,9 +22,17 @@ SNAPSHOT_HEADER = re.compile(
 
 def parse_lock(path: Path) -> tuple[str, list[str]]:
     content = path.read_bytes().decode("ascii")
+    # The lockfile grammar permits ASCII printing characters plus LF/CRLF.
+    # str.splitlines() also accepts VT, FF, FS, GS and RS as line breaks;
+    # treating these as real records defeats strict lockfile validation.
+    if any(ord(ch) < 0x20 and ch not in "\r\n" or ord(ch) == 0x7f
+           for ch in content):
+        raise ValueError("disallowed control character in lockfile")
+    if "\r" in content.replace("\r\n", ""):
+        raise ValueError("bare CR is not a valid lockfile line ending")
     entries: dict[str, str] = {}
     snapshot = None
-    for line_number, line in enumerate(content.splitlines(), start=1):
+    for line_number, line in enumerate(content.replace("\r\n", "\n").split("\n"), start=1):
         if line.startswith("# Ubuntu apt snapshot:"):
             found = SNAPSHOT_HEADER.fullmatch(line)
             if found is None or snapshot is not None:
