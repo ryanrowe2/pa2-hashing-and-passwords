@@ -2,34 +2,13 @@
 # Weekly update-availability check for the Ubuntu toolchain snapshot lock.
 set -euo pipefail
 
-lock=ci/toolchain.lock
-packages=()
-declare -A seen_packages=()
-line_number=0
-while IFS= read -r line || [[ -n "$line" ]]; do
-  ((line_number += 1))
-  # Ignore blank/comment-only lines, including indentation.
-  line="${line#"${line%%[![:space:]]*}"}"
-  if [[ -z "$line" || "${line:0:1}" == '#' ]]; then
-    continue
-  fi
-  if [[ ! "$line" =~ ^([a-z0-9][a-z0-9.+-]*)=([0-9][a-zA-Z0-9.+:~_-]*)$ ]]; then
-    printf '::error::Malformed toolchain lock entry on line %d\n' "$line_number" >&2
-    exit 2
-  fi
-  name=${BASH_REMATCH[1]}
-  if [[ -v seen_packages[$name] ]]; then
-    printf '::error::Duplicate package %s on line %d\n' "$name" "$line_number" >&2
-    exit 2
-  fi
-  seen_packages[$name]=1
-  packages+=("$line")
-done < "$lock"
-
-if (( ${#packages[@]} == 0 )); then
-  printf '::error::Toolchain lock contains no package versions\n' >&2
+# Use the same complete inventory/format checks as the installer. Command
+# substitution in a conditional preserves the validator's failure status.
+if ! validated_lock=$(python3 ci/parse-toolchain-lock.py ci/toolchain.lock); then
+  printf '::error::Toolchain lock validation failed; refusing review\n' >&2
   exit 2
 fi
+mapfile -t packages <<< "$validated_lock"
 
 sudo apt-get update -qq
 updates=0

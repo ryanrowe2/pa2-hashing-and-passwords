@@ -20,6 +20,7 @@ class ToolchainWorkflowTriggerTests(unittest.TestCase):
                 block = match.group(1)
                 for path in (
                     "ci/install-toolchain.sh",
+                    "ci/parse-toolchain-lock.py",
                     "ci/toolchain.lock",
                     "ci/audit-toolchain.sh",
                     ".github/workflows/toolchain-review.yml",

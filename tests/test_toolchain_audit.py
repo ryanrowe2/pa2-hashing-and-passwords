@@ -1,123 +1,183 @@
-"""Offline failure-path tests for the Ubuntu toolchain update audit."""
-
+"""Hermetic tests of the shared toolchain lock parser, installer and audit."""
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+PACKAGES = ("build-essential", "gcc", "gcc-13", "clang", "clang-18",
+            "libssl-dev", "python3")
 
 
 @unittest.skipUnless(shutil.which("bash") and Path("/usr/bin/dpkg").exists(),
                      "requires Bash and Debian dpkg")
 class ToolchainAuditTests(unittest.TestCase):
     def setUp(self):
-        temp = tempfile.TemporaryDirectory(prefix="pa2-audit-")
+        temp = tempfile.TemporaryDirectory(prefix="pa2-lock-")
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
-        (self.root / "ci").mkdir()
-        (self.root / "fake-bin").mkdir()
-        shutil.copy2(ROOT / "ci" / "audit-toolchain.sh",
-                     self.root / "ci" / "audit-toolchain.sh")
-        self.lock = self.root / "ci" / "toolchain.lock"
-        self.lock.write_text("gcc=1.2.3\n", encoding="utf-8")
-        mocks = {
+        self.cwd = Path(temp.name)
+        (self.cwd / "ci").mkdir()
+        fake = self.cwd / "fake"
+        fake.mkdir()
+        for file in ("parse-toolchain-lock.py", "audit-toolchain.sh",
+                     "install-toolchain.sh"):
+            shutil.copy2(ROOT / "ci" / file, self.cwd / "ci" / file)
+        self.lock = self.cwd / "ci" / "toolchain.lock"
+        self.set_lock()
+        commands = {
             "sudo": """#!/bin/sh
-printf 'called' > fake-update-called.txt
-if [ "${FAKE_APT_GET_ERROR:-}" = 1 ]; then exit 22; fi
+printf '%s\n' "$*" >> sudo.log
+if [ "${FAIL_UPDATE:-}" = 1 ]; then exit 22; fi
+if [ "${FAIL_INSTALL:-}" = 1 ]; then exit 23; fi
 exit 0
 """,
             "apt-cache": """#!/bin/sh
-if [ "${FAKE_APT_CACHE_ERROR:-}" = 1 ]; then exit 23; fi
-if [ "${FAKE_NO_CANDIDATE:-}" = 1 ]; then
-  printf ' Candidate: (none)\\n'
-else
-  printf ' Candidate: %s\\n' "${FAKE_CANDIDATE:-1.2.3}"
-fi
+if [ "${FAIL_POLICY:-}" = 1 ]; then exit 24; fi
+printf ' Candidate: %s\n' "${CANDIDATE:-1.2.3}"
 """,
             "dpkg": """#!/bin/sh
-if [ "${FAKE_DPKG_ERROR:-}" = 1 ]; then exit 2; fi
+if [ "${FAIL_COMPARE:-}" = 1 ]; then exit 2; fi
 exec /usr/bin/dpkg "$@"
 """,
+            "dpkg-query": """#!/bin/sh
+if [ "${FAIL_QUERY:-}" = 1 ]; then exit 25; fi
+printf '%s' "${INSTALLED:-1.2.3}"
+""",
         }
-        for name, content in mocks.items():
-            executable = self.root / "fake-bin" / name
-            executable.write_text(content, encoding="utf-8")
-            executable.chmod(0o755)
+        for name, body in commands.items():
+            p = fake / name
+            p.write_text(body)
+            p.chmod(0o755)
 
-    def audit(self, **overrides):
-        environment = os.environ.copy()
-        environment["PATH"] = str(self.root / "fake-bin") + os.pathsep + environment["PATH"]
-        for key in ("FAKE_APT_GET_ERROR", "FAKE_APT_CACHE_ERROR", "FAKE_NO_CANDIDATE",
-                    "FAKE_DPKG_ERROR", "FAKE_CANDIDATE"):
-            environment.pop(key, None)
-        environment.update(overrides)
-        return subprocess.run(
-            ["bash", "ci/audit-toolchain.sh"], cwd=self.root,
-            env=environment, capture_output=True, check=False, timeout=10,
-        )
+    def set_lock(self, missing=(), added=(), version="1.2.3"):
+        lines = [f"{name}={version}" for name in PACKAGES if name not in missing]
+        self.lock.write_text("# test lock\n" + "\n".join([*lines, *added]) + "\n")
 
-    def test_current_version_succeeds(self):
-        result = self.audit()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(b"1 tracked", result.stdout)
+    def command(self, name, **options):
+        env = os.environ.copy()
+        env["PATH"] = str(self.cwd / "fake") + os.pathsep + env["PATH"]
+        for k in ("FAIL_UPDATE", "FAIL_INSTALL", "FAIL_POLICY",
+                  "FAIL_COMPARE", "FAIL_QUERY", "CANDIDATE", "INSTALLED"):
+            env.pop(k, None)
+        env.update(options)
+        if name == "parse":
+            args = [sys.executable, "ci/parse-toolchain-lock.py", "ci/toolchain.lock"]
+        else:
+            args = ["bash", f"ci/{name}.sh"]
+        return subprocess.run(args, cwd=self.cwd, env=env, capture_output=True,
+                              check=False, timeout=20)
 
-    def test_older_available_version_succeeds(self):
-        result = self.audit(FAKE_CANDIDATE="1.2.2")
-        self.assertEqual(result.returncode, 0, result.stderr)
+    def test_valid_inventory_emits_expected_arguments(self):
+        x = self.command("parse")
+        self.assertEqual(x.returncode, 0, x.stderr)
+        self.assertEqual(x.stdout.decode().splitlines(),
+                         [f"{name}=1.2.3" for name in PACKAGES])
 
-    def test_newer_version_requires_update(self):
-        result = self.audit(FAKE_CANDIDATE="1.2.4")
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn(b"Toolchain update available", result.stdout)
+    def test_installer_accepts_exact_full_inventory(self):
+        x = self.command("install-toolchain")
+        self.assertEqual(x.returncode, 0, x.stderr)
+        text = (self.cwd / "sudo.log").read_text()
+        for name in PACKAGES:
+            self.assertIn(f"{name}=1.2.3", text)
+        self.assertIn(b"Validated 7 locked", x.stdout)
 
-    def test_dpkg_comparison_error_fails_closed(self):
-        result = self.audit(FAKE_DPKG_ERROR="1")
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn(b"Version comparison failed", result.stderr)
-        self.assertNotIn(b"No newer candidate", result.stdout)
+    def test_audit_accepts_exact_full_inventory(self):
+        x = self.command("audit-toolchain")
+        self.assertEqual(x.returncode, 0, x.stderr)
+        self.assertIn(b"7 tracked", x.stdout)
 
-    def test_empty_or_comment_only_lock_fails_without_apt(self):
-        for content in ("", "# comment\n    # comment\n   \n"):
-            with self.subTest(content=content):
-                (self.root / "fake-update-called.txt").unlink(missing_ok=True)
-                self.lock.write_text(content, encoding="utf-8")
-                result = self.audit()
-                self.assertEqual(result.returncode, 2, result.stderr)
-                self.assertIn(b"no package versions", result.stderr)
-                self.assertFalse((self.root / "fake-update-called.txt").exists())
+    def test_update_detection(self):
+        x = self.command("audit-toolchain", CANDIDATE="1.2.4")
+        self.assertEqual(x.returncode, 1, x.stderr)
+        self.assertIn(b"Toolchain update available", x.stdout)
 
-    def test_malformed_or_duplicate_entries_fail(self):
-        for content in ("gcc\n", "gcc=\n", "gcc=1.2.3\ngcc=1.2.4\n",
-                        "gcc=1.2.3\ninvalid package=1.0\n",
-                        "gcc=$(touch owned)\n", "gcc=1.2.3 garbage\n"):
-            with self.subTest(content=content):
-                self.lock.write_text(content, encoding="utf-8")
-                result = self.audit()
-                self.assertEqual(result.returncode, 2, result.stderr)
-                self.assertIn(b"::error::", result.stderr)
+    def test_older_candidate_is_not_update(self):
+        self.assertEqual(self.command("audit-toolchain", CANDIDATE="1.2.2").returncode, 0)
 
-    def test_last_line_without_newline_is_read(self):
-        self.lock.write_text("# pinned\ngcc=1.2.3", encoding="utf-8")
-        result = self.audit()
-        self.assertEqual(result.returncode, 0, result.stderr)
+    def test_comparison_failure_fails_closed(self):
+        x = self.command("audit-toolchain", FAIL_COMPARE="1")
+        self.assertEqual(x.returncode, 2, x.stderr)
+        self.assertIn(b"Version comparison failed", x.stderr)
 
-    def test_package_lookup_failure_fails_closed(self):
-        result = self.audit(FAKE_APT_CACHE_ERROR="1")
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn(b"Cannot query", result.stderr)
+    def test_missing_each_mandatory_package_rejected(self):
+        for missing in PACKAGES:
+            with self.subTest(missing=missing):
+                self.set_lock(missing=(missing,))
+                for tool in ("parse", "audit-toolchain", "install-toolchain"):
+                    x = self.command(tool)
+                    self.assertEqual(x.returncode, 2, x.stderr)
+                    self.assertIn(b"missing=", x.stderr)
+        self.assertFalse((self.cwd / "sudo.log").exists())
 
-    def test_missing_candidate_fails_closed(self):
-        result = self.audit(FAKE_NO_CANDIDATE="1")
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn(b"Cannot determine", result.stderr)
+    def test_partial_or_empty_lock_rejected(self):
+        for data in ("", "# only a comment\n", "gcc=1.2.3\n",
+                     "gcc=1.2.3\nclang=1.2.3\n"):
+            with self.subTest(data=data):
+                self.lock.write_text(data)
+                for tool in ("parse", "audit-toolchain", "install-toolchain"):
+                    x = self.command(tool)
+                    self.assertEqual(x.returncode, 2, x.stderr)
+        self.assertFalse((self.cwd / "sudo.log").exists())
 
-    def test_package_index_update_failure_propagates(self):
-        result = self.audit(FAKE_APT_GET_ERROR="1")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn(b"No newer candidate", result.stdout)
+    def test_invalid_unknown_duplicate_and_whitespace_rejected(self):
+        original = self.lock.read_text()
+        for addition in ("gcc=1.2.3", "bogus=1.2.3",
+                         "  gcc=1.2.3", "\tgcc=1.2.3", "gcc=1.2.3 ",
+                         "gcc=$(touch unsafe)", "gcc", "gcc=", "bad name=1"):
+            with self.subTest(addition=addition):
+                self.lock.write_text(original + addition + "\n")
+                self.assertEqual(self.command("parse").returncode, 2)
+                self.assertEqual(self.command("install-toolchain").returncode, 2)
+                self.assertEqual(self.command("audit-toolchain").returncode, 2)
+        self.assertFalse((self.cwd / "sudo.log").exists())
+
+    def test_leading_whitespace_on_existing_entry_rejected(self):
+        self.lock.write_text(self.lock.read_text().replace(
+            "gcc=1.2.3", "  gcc=1.2.3"))
+        for tool in ("parse", "audit-toolchain", "install-toolchain"):
+            self.assertEqual(self.command(tool).returncode, 2)
+        self.assertFalse((self.cwd / "sudo.log").exists())
+
+    def test_non_ascii_or_missing_lock_rejected(self):
+        self.lock.write_bytes(self.lock.read_bytes() + b"\xff")
+        self.assertEqual(self.command("parse").returncode, 2)
+        self.lock.unlink()
+        for tool in ("parse", "audit-toolchain", "install-toolchain"):
+            self.assertEqual(self.command(tool).returncode, 2)
+
+    def test_partial_parser_failure_cannot_install(self):
+        fake_python = self.cwd / "fake" / "python3"
+        fake_python.write_text("#!/bin/sh\nprintf 'gcc=1.2.3\\\n'\nexit 19\n")
+        fake_python.chmod(0o755)
+        for tool in ("audit-toolchain", "install-toolchain"):
+            x = self.command(tool)
+            self.assertEqual(x.returncode, 2, x.stderr)
+            self.assertIn(b"validation failed", x.stderr)
+        self.assertFalse((self.cwd / "sudo.log").exists())
+
+    def test_package_manager_failures_propagate(self):
+        for tool, variable in (("audit-toolchain", "FAIL_POLICY"),
+                               ("audit-toolchain", "FAIL_UPDATE"),
+                               ("install-toolchain", "FAIL_UPDATE"),
+                               ("install-toolchain", "FAIL_INSTALL"),
+                               ("install-toolchain", "FAIL_QUERY")):
+            with self.subTest(tool=tool, variable=variable):
+                self.assertNotEqual(self.command(tool, **{variable: "1"}).returncode, 0)
+
+    def test_version_mismatch_rejected(self):
+        x = self.command("install-toolchain", INSTALLED="9.9.9")
+        self.assertNotEqual(x.returncode, 0)
+        self.assertIn(b"Package version mismatch", x.stderr)
+
+    def test_final_line_without_newline(self):
+        self.lock.write_bytes(self.lock.read_bytes().rstrip(b"\n"))
+        self.assertEqual(self.command("parse").returncode, 0)
+        self.assertEqual(self.command("audit-toolchain").returncode, 0)
+        self.assertEqual(self.command("install-toolchain").returncode, 0)
 
 
 if __name__ == "__main__":
