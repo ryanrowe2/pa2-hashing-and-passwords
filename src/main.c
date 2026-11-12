@@ -78,6 +78,14 @@ static int print_escaped_candidate(const char *candidate, size_t length) {
 }
 
 int main(int argc, char **argv) {
+#ifdef SIGPIPE
+    /* Cover diagnostic writes during argument validation as well. */
+    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
+        perror("Error: unable to configure broken-pipe handling");
+        return 2;
+    }
+#endif
+
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <64-character SHA-256 hex digest>\n", argv[0]);
         return 2;
@@ -88,14 +96,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Error: expected exactly 64 ASCII hexadecimal characters\n");
         return 2;
     }
-
-#ifdef SIGPIPE
-    /* Convert broken pipes into checked EPIPE output failures on POSIX. */
-    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
-        perror("Error: unable to configure broken-pipe handling");
-        return 2;
-    }
-#endif
 
     char candidate[PWCRACK_MAX_CANDIDATE_BYTES + 1u];
     size_t length = 0;

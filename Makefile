@@ -15,6 +15,8 @@ CFLAGS += $(SAN_FLAGS)
 LDFLAGS += -fsanitize=address,undefined
 endif
 
+.DELETE_ON_ERROR:
+
 .PHONY: all clean test bench analyze FORCE
 all: $(BIN)
 
@@ -29,17 +31,28 @@ $(CONFIG): FORCE | build
 
 FORCE:
 
+# Atomic builds: never publish a partial executable after compilation fails.
+# The temporary binary is kept in the destination directory for atomic rename.
+define compile_atomically
+	@set -eu; \
+		tmp="$@.tmp.$$"; \
+		trap 'rm -f "$tmp"' EXIT HUP INT TERM; \
+		printf 'Compiling %s with %s (flags: %s)\n' "$@" "$(CC)" "$(CFLAGS)"; \
+		$(CC) $(CPPFLAGS) $(CFLAGS) $(1) $(LDFLAGS) $(2) $(LDLIBS) -o "$tmp"; \
+		mv -f "$tmp" "$@"
+endef
+
 $(BIN): src/main.c src/pwcrack.c include/pwcrack.h Makefile $(CONFIG) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) src/main.c src/pwcrack.c $(LDFLAGS) $(LDLIBS) -o $@
+	$(call compile_atomically,src/main.c src/pwcrack.c,)
 
 $(UNIT): tests/test_core.c src/pwcrack.c include/pwcrack.h Makefile $(CONFIG) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_core.c src/pwcrack.c $(LDFLAGS) $(LDLIBS) -o $@
+	$(call compile_atomically,tests/test_core.c src/pwcrack.c,)
 
 $(FAULT): tests/test_fault.c src/pwcrack.c include/pwcrack.h Makefile $(CONFIG) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_fault.c src/pwcrack.c $(LDFLAGS) -Wl,--wrap=SHA256 $(LDLIBS) -o $@
+	$(call compile_atomically,tests/test_fault.c src/pwcrack.c,-Wl,--wrap=SHA256)
 
 $(FAULT_CLI): tests/sha256_fail.c src/main.c src/pwcrack.c include/pwcrack.h Makefile $(CONFIG) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/sha256_fail.c src/main.c src/pwcrack.c $(LDFLAGS) -Wl,--wrap=SHA256 $(LDLIBS) -o $@
+	$(call compile_atomically,tests/sha256_fail.c src/main.c src/pwcrack.c,-Wl,--wrap=SHA256)
 
 test: $(BIN) $(UNIT) $(FAULT) $(FAULT_CLI)
 	./$(UNIT)
