@@ -7,6 +7,7 @@ import subprocess
 import unittest
 
 BIN = Path(os.environ.get("PWCRACK_BIN", "build/pwcrack")).resolve()
+FAULT_BIN = Path(os.environ.get("PWCRACK_FAULT_BIN", "build/pwcrack_sha_error")).resolve()
 
 
 def digest(value: bytes) -> str:
@@ -126,6 +127,51 @@ class CLITests(unittest.TestCase):
 
     def test_utf8_candidate(self) -> None:
         self.assert_match("caféA".encode(), "caféa".encode() + b"\n", "caféA".encode())
+
+    @unittest.skipUnless(os.path.exists("/dev/full"), "requires /dev/full")
+    def test_stdout_failure_on_match(self) -> None:
+        with open("/dev/full", "wb") as output:
+            result = subprocess.run(
+                [str(BIN), digest(b"secret")], input=b"secret\n",
+                stdout=output, stderr=subprocess.PIPE, check=False, timeout=10,
+            )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(b"unable to write standard output", result.stderr)
+
+    @unittest.skipUnless(os.path.exists("/dev/full"), "requires /dev/full")
+    def test_stdout_failure_on_no_match(self) -> None:
+        with open("/dev/full", "wb") as output:
+            result = subprocess.run(
+                [str(BIN), digest(b"not-present")], input=b"candidate\n",
+                stdout=output, stderr=subprocess.PIPE, check=False, timeout=10,
+            )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(b"unable to write standard output", result.stderr)
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX directory file descriptors")
+    def test_stdin_read_failure(self) -> None:
+        directory_fd = os.open(".", os.O_RDONLY)
+        try:
+            result = subprocess.run(
+                [str(BIN), digest(b"something")], stdin=directory_fd,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                check=False, timeout=10,
+            )
+        finally:
+            os.close(directory_fd)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(b"unable to read standard input", result.stderr)
+        self.assertEqual(result.stdout, b"")
+
+    def test_sha256_failure_reported_by_cli(self) -> None:
+        result = subprocess.run(
+            [str(FAULT_BIN), digest(b"secret")], input=b"secret\n",
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            check=False, timeout=10,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(b"SHA-256 calculation failed", result.stderr)
+        self.assertEqual(result.stdout, b"")
 
     def test_long_stream_of_nonmatches(self) -> None:
         data = b"".join(f"candidate-{i:04d}\n".encode() for i in range(1000))

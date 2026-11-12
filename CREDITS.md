@@ -6,3 +6,5 @@
 - **External dependency:** OpenSSL provides SHA-256 and CRYPTO_memcmp through libcrypto.
 
 The original code and assignment history are preserved. This refactor does not represent a 2024 course submission or a production password-security implementation.
+
+The MIT License covers the repository author's code and documentation, including the subsequent refactor. It does not license third-party course assignment materials or OpenSSL.
