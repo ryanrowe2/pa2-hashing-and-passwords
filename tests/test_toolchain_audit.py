@@ -80,7 +80,7 @@ printf '%s' "${INSTALLED:-1.2.3}"
     def command(self, name, **options):
         env = os.environ.copy()
         env["PATH"] = str(self.cwd / "fake") + os.pathsep + env["PATH"]
-        for k in ("FAIL_SNAPSHOT", "FAIL_SNAPSHOT_TIMEOUT", "BAD_SIGNATURE", "PARTIAL_INDEX", "FAIL_UPDATE", "FAIL_INSTALL", "FAIL_POLICY",
+        for k in ("PA2_USE_SNAPSHOT", "FAIL_SNAPSHOT", "FAIL_SNAPSHOT_TIMEOUT", "BAD_SIGNATURE", "PARTIAL_INDEX", "FAIL_UPDATE", "FAIL_INSTALL", "FAIL_POLICY",
                   "FAIL_COMPARE", "FAIL_QUERY", "CANDIDATE", "INSTALLED"):
             env.pop(k, None)
         env.update(options)
@@ -105,8 +105,15 @@ printf '%s' "${INSTALLED:-1.2.3}"
             self.assertIn(f"{name}=1.2.3", text)
         self.assertIn(b"Validated 7 locked", x.stdout)
 
-    def test_snapshot_outage_uses_exact_pins_or_fails(self):
+    def test_normal_ci_install_does_not_depend_on_snapshot_cdn(self):
         x = self.command("install-toolchain", FAIL_SNAPSHOT="1")
+        self.assertEqual(x.returncode, 0, x.stderr)
+        log = (self.cwd / "sudo.log").read_text()
+        self.assertNotIn("pa2-snapshot.list", log)
+        self.assertIn("pa2-current.list", log)
+
+    def test_snapshot_outage_uses_exact_pins_or_fails(self):
+        x = self.command("install-toolchain", PA2_USE_SNAPSHOT="1", FAIL_SNAPSHOT="1")
         self.assertEqual(x.returncode, 0, x.stderr)
         self.assertIn(b"retrying identical version pins", x.stderr)
         log = (self.cwd / "sudo.log").read_text()
@@ -148,7 +155,7 @@ printf '%s' "${INSTALLED:-1.2.3}"
         self.assertEqual(result.returncode, 2, result.stderr)
 
     def test_bounded_snapshot_timeout_uses_only_exact_signed_fallback(self):
-        x = self.command("install-toolchain", FAIL_SNAPSHOT_TIMEOUT="1")
+        x = self.command("install-toolchain", PA2_USE_SNAPSHOT="1", FAIL_SNAPSHOT_TIMEOUT="1")
         self.assertEqual(x.returncode, 0, x.stderr)
         log = (self.cwd / "sudo.log").read_text()
         self.assertIn("pa2-snapshot.list", log)
@@ -158,14 +165,14 @@ printf '%s' "${INSTALLED:-1.2.3}"
             self.assertIn(f"{name}=1.2.3", log)
 
     def test_snapshot_install_failure_never_activates_fallback(self):
-        result = self.command("install-toolchain", FAIL_INSTALL="1")
+        result = self.command("install-toolchain", PA2_USE_SNAPSHOT="1", FAIL_INSTALL="1")
         self.assertEqual(result.returncode, 2, result.stderr)
         log = (self.cwd / "sudo.log").read_text()
         self.assertIn("pa2-snapshot.list", log)
         self.assertNotIn("pa2-current.list", log)
 
     def test_snapshot_authenticity_error_never_activates_fallback(self):
-        result = self.command("install-toolchain", FAIL_SNAPSHOT="1",
+        result = self.command("install-toolchain", PA2_USE_SNAPSHOT="1", FAIL_SNAPSHOT="1",
                               BAD_SIGNATURE="1")
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertNotIn("pa2-current.list", (self.cwd / "sudo.log").read_text())
