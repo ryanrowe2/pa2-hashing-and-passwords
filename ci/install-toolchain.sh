@@ -11,10 +11,24 @@ if ! validated_lock=$(python3 ci/parse-toolchain-lock.py ci/toolchain.lock); the
 fi
 mapfile -t packages <<< "$validated_lock"
 
-# Always use the same Ubuntu snapshot for both package indexes and downloads.
-sudo apt-get --snapshot "$snapshot" update
-sudo DEBIAN_FRONTEND=noninteractive apt-get --snapshot "$snapshot" install \
-  -y --no-install-recommends --allow-downgrades "${packages[@]}"
+# Prefer the dated Ubuntu snapshot, but never accept an apt-get update that
+# only succeeded because APT ignored failed snapshot indexes (e.g. HTTP 503).
+# If the snapshot endpoint is unavailable, permit the normal signed Ubuntu
+# repositories only when they can supply every EXACT locked version.
+source_used="Ubuntu snapshot $snapshot"
+if sudo apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=3 \
+     --snapshot "$snapshot" update && \
+   sudo DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 \
+     --snapshot "$snapshot" install -y --no-install-recommends \
+     --allow-downgrades "${packages[@]}"; then
+  :
+else
+  printf '::warning::Ubuntu snapshot unavailable; retrying exact locked versions from configured signed repositories\n' >&2
+  sudo apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=3 update
+  sudo DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 install \
+    -y --no-install-recommends --allow-downgrades "${packages[@]}"
+  source_used="configured signed Ubuntu repositories (exact locked versions)"
+fi
 
 # Fail loudly if an updated runner image invalidates the package lock.
 for spec in "${packages[@]}"; do
@@ -27,5 +41,5 @@ for spec in "${packages[@]}"; do
     exit 1
   fi
 done
-printf 'Validated %d locked package versions at Ubuntu snapshot %s\n' \
-  "${#packages[@]}" "$snapshot"
+printf 'Validated %d locked package versions using %s\n' \
+  "${#packages[@]}" "$source_used"
