@@ -16,6 +16,11 @@ CFLAGS += $(SAN_FLAGS)
 LDFLAGS += -fsanitize=address,undefined
 endif
 
+# Serialize independent Make processes across all public build entry points.
+# Hold the lock over config-stamp updates, compilation and tests, not merely
+# individual recipes. Keep the lock outside build/ so clean cannot unlink it.
+ifeq ($(PA2_BUILD_SERIALIZED),1)
+
 .DELETE_ON_ERROR:
 
 .PHONY: all clean test bench analyze FORCE
@@ -27,8 +32,11 @@ build:
 # Rebuild when compiler or effective flags change, even without source edits.
 # Only replace the config stamp if its contents actually differ.
 $(CONFIG): FORCE | build
-	@printf '%s\n' 'CC=$(CC)' 'CPPFLAGS=$(CPPFLAGS)' 'CFLAGS=$(CFLAGS)' 'LDFLAGS=$(LDFLAGS)' 'LDLIBS=$(LDLIBS)' > $@.tmp
-	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm $@.tmp; fi
+	@set -eu; \
+		tmp="$@.tmp.$$$$"; \
+		trap 'rm -f "$$tmp"' EXIT HUP INT TERM; \
+		printf '%s\n' 'CC=$(CC)' 'CPPFLAGS=$(CPPFLAGS)' 'CFLAGS=$(CFLAGS)' 'LDFLAGS=$(LDFLAGS)' 'LDLIBS=$(LDLIBS)' > "$$tmp"; \
+		if ! cmp -s "$$tmp" "$@"; then mv -f "$$tmp" "$@"; fi
 
 FORCE:
 
@@ -36,11 +44,11 @@ FORCE:
 # The temporary binary is kept in the destination directory for atomic rename.
 define compile_atomically
 	@set -eu; \
-		tmp="$@.tmp.$$"; \
-		trap 'rm -f "$tmp"' EXIT HUP INT TERM; \
+		tmp="$@.tmp.$$$$"; \
+		trap 'rm -f "$$tmp"' EXIT HUP INT TERM; \
 		printf 'Compiling %s with %s (flags: %s)\n' "$@" "$(CC)" "$(CFLAGS)"; \
-		$(CC) $(CPPFLAGS) $(CFLAGS) $(1) $(LDFLAGS) $(2) $(LDLIBS) -o "$tmp"; \
-		mv -f "$tmp" "$@"
+		$(CC) $(CPPFLAGS) $(CFLAGS) $(1) $(LDFLAGS) $(2) $(LDLIBS) -o "$$tmp"; \
+		mv -f "$$tmp" "$@"
 endef
 
 $(BIN): src/main.c src/pwcrack.c include/pwcrack.h Makefile $(CONFIG) | build
@@ -70,3 +78,15 @@ analyze:
 
 clean:
 	rm -rf build
+
+else
+
+.DEFAULT_GOAL := all
+
+# flock is provided by util-linux on supported Linux builds. The recursive
+# Make inherits command-line overrides (CC, CFLAGS, SANITIZE, etc.).
+.PHONY: all test bench analyze clean build $(BIN) $(UNIT) $(FAULT) $(FAULT_CLI) $(CONFIG)
+all test bench analyze clean build $(BIN) $(UNIT) $(FAULT) $(FAULT_CLI) $(CONFIG):
+	+@flock -x .pa2-build.lock $(MAKE) --no-print-directory PA2_BUILD_SERIALIZED=1 $@
+
+endif
