@@ -17,8 +17,8 @@ jobs:
     steps:
       # actions/checkout v7.0.1, pinned to its immutable release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Install Ubuntu toolchain dependencies
-        run: sudo apt-get update && sudo apt-get install -y build-essential clang libssl-dev python3
+      - name: Install locked Ubuntu toolchain
+        run: bash ci/install-toolchain.sh
       - name: Record environment dependency versions
         run: |
           gcc --version | head -n 1
