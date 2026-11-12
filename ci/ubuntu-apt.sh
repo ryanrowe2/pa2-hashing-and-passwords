@@ -25,6 +25,13 @@ pa2_apt_select() {
       ;;
     *) printf '::error::Unsupported APT source mode\n' >&2; return 2 ;;
   esac
+  PA2_APT_MODE=$mode
+  PA2_APT_SNAPSHOT=$snapshot
+  # Isolate both apt-cache and apt-get from pre-existing hosted-runner indexes.
+  # Separate modes ensure snapshot indexes cannot contaminate current archives.
+  PA2_APT_LISTS="$PA2_APT_DIR/lists-$mode"
+  mkdir -p "$PA2_APT_LISTS/partial"
+  chmod 755 "$PA2_APT_LISTS" "$PA2_APT_LISTS/partial"
   PA2_APT_LIST="$PA2_APT_DIR/pa2-$mode.list"
   {
     printf 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] %s noble main universe\n' "$repo"
@@ -35,6 +42,8 @@ pa2_apt_select() {
   PA2_APT_OPTIONS=(
     -o "Dir::Etc::sourcelist=$PA2_APT_LIST"
     -o "Dir::Etc::sourceparts=-"
+    -o "Dir::State::lists=$PA2_APT_LISTS"
+    -o "APT::Get::AllowUnauthenticated=false"
     -o "APT::Update::Error-Mode=any"
     -o "Acquire::Retries=0"
     -o "Acquire::Languages=none"
@@ -42,8 +51,30 @@ pa2_apt_select() {
   )
 }
 
+# Verify that the requested package and exact pin are represented in the
+# authenticated archive indexes, not only /var/lib/dpkg/status.
+pa2_apt_check_available() {
+  local purpose=$1 spec=$2 name pinned listing status
+  name=${spec%%=*}
+  pinned=${spec#*=}
+  if ! listing=$(apt-cache "${PA2_APT_OPTIONS[@]}" madison "$name"); then
+    printf '::error::Unable to query authenticated versions for %s\n' "$name" >&2
+    return 2
+  fi
+  if printf '%s\n' "$listing" |
+     python3 ci/verify-ubuntu-candidates.py "$purpose" "$PA2_APT_MODE" "${PA2_APT_SNAPSHOT:--}" "$name" "$pinned"; then
+    return 0
+  else
+    status=$?
+    return "$status"
+  fi
+}
+
 pa2_apt_cleanup() {
   if [[ -n ${PA2_APT_DIR:-} ]]; then
-    rm -rf -- "$PA2_APT_DIR"
+    # APT may have created root-owned index directories inside this temp tree.
+    if ! rm -rf -- "$PA2_APT_DIR" 2>/dev/null; then
+      sudo rm -rf -- "$PA2_APT_DIR"
+    fi
   fi
 }
