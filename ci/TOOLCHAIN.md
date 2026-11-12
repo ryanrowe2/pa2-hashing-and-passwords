@@ -4,7 +4,7 @@ Both the installer and weekly audit validate package entries through the shared 
 
 ## Weekly monitoring
 
-[The automated toolchain review workflow](../.github/workflows/toolchain-review.yml) runs every Monday at 09:23 UTC and is also manually dispatchable. It checks recent versions available in the Ubuntu apt repositories against each pinned version. Newer candidates cause an annotated failure; this is an update-availability signal, not a vulnerability scan. The review also fails on missing, empty, malformed, or duplicate entries in the lockfile, unavailable package metadata, and version-comparison errors. Exit status 0 means every tracked package was checked and no newer candidate was found; exit status 1 signals an available update; exit status 2 signals a validation or comparison failure. Ubuntu runner and GitHub Actions update notices should also be reviewed.
+[The automated toolchain review workflow](../.github/workflows/toolchain-review.yml) runs every Monday at 09:23 UTC, on every pull request and push to main, and can also be dispatched manually. The same audit is enforced inside the required GCC quality job, so an available toolchain update cannot be ignored during merging even if the separate workflow is not configured as a required status check. It checks recent versions available in the Ubuntu apt repositories against each pinned version. Newer candidates cause an annotated failure; this is an update-availability signal, not a vulnerability scan. The review also fails on missing, empty, malformed, or duplicate entries in the lockfile, unavailable package metadata, and version-comparison errors. Exit status 0 means every tracked package was checked and no newer candidate was found; exit status 1 signals an available update; exit status 2 signals a validation or comparison failure. Ubuntu runner and GitHub Actions update notices should also be reviewed.
 
 ## Updating safely
 
@@ -19,3 +19,7 @@ Document any accepted exceptions or deferrals instead of silently disabling the 
 ## Offline regression checks
 
 Run `python3 -m unittest discover -s tests -p 'test_toolchain_audit.py' -v` to exercise update-availability and error paths using local mock commands without contacting APT repositories. These checks also run automatically in the main C build-and-test GitHub Actions workflow.
+
+## Environment provenance
+
+The `ci/record-environment.sh` script runs after package installation in both compiler jobs. It prints the complete sorted installed Debian package inventory to the workflow step log, its SHA-256 fingerprint, the runner image identifiers, kernel, and compiler/runtime versions. The job summary includes the fingerprint. This makes transitive dependency drift visible across runs without claiming bit-for-bit reproducibility. The Ubuntu snapshot pins selected direct packages, but transitive packages and GitHub-hosted runner image components are not fully locked. If hermetic builds become a requirement, migrate to a container with an immutable digest and audited transitive dependencies.

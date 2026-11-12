@@ -4,21 +4,11 @@ on:
   schedule:
     - cron: '23 9 * * 1'
   workflow_dispatch:
+  # All PRs and main pushes report this check, including changes to ci.yml.
+  # Do not use paths filters: a required check must never be skipped on a PR.
   pull_request:
-    paths:
-      - '.github/workflows/toolchain-review.yml'
-      - 'ci/audit-toolchain.sh'
-      - 'ci/toolchain.lock'
-      - 'ci/install-toolchain.sh'
-      - 'ci/parse-toolchain-lock.py'
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/toolchain-review.yml'
-      - 'ci/audit-toolchain.sh'
-      - 'ci/toolchain.lock'
-      - 'ci/install-toolchain.sh'
-      - 'ci/parse-toolchain-lock.py'
 
 permissions:
   contents: read
