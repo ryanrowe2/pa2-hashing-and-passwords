@@ -24,7 +24,8 @@ class ToolchainAuditTests(unittest.TestCase):
         fake = self.cwd / "fake"
         fake.mkdir()
         for file in ("parse-toolchain-lock.py", "audit-toolchain.sh",
-                     "install-toolchain.sh", "ubuntu-apt.sh"):
+                     "install-toolchain.sh", "ubuntu-apt.sh",
+                     "verify-ubuntu-candidates.py"):
             shutil.copy2(ROOT / "ci" / file, self.cwd / "ci" / file)
         self.lock = self.cwd / "ci" / "toolchain.lock"
         self.set_lock()
@@ -57,7 +58,19 @@ exit 0
 """,
             "apt-cache": """#!/bin/sh
 if [ "${FAIL_POLICY:-}" = 1 ]; then exit 24; fi
-printf ' Candidate: %s\n' "${CANDIDATE:-1.2.3}"
+for name in "$@"; do :; done
+case "$*" in
+  *pa2-snapshot.list*) uri="https://snapshot.ubuntu.com/ubuntu/20261111T000000Z" ;;
+  *) uri="http://archive.ubuntu.com/ubuntu" ;;
+esac
+if [ "${UNTRUSTED_REPOSITORY:-}" = 1 ]; then uri="https://untrusted.example/ubuntu"; fi
+if [ "${NO_REPOSITORY_VERSION:-}" = 1 ]; then exit 0; fi
+if [ "${MISSING_PIN_FROM_REPO:-}" != 1 ]; then
+  printf ' %s | 1.2.3 | %s noble/main amd64 Packages\n' "$name" "$uri"
+fi
+if [ "${CANDIDATE:-1.2.3}" != "1.2.3" ]; then
+  printf ' %s | %s | %s noble-updates/main amd64 Packages\n' "$name" "$CANDIDATE" "$uri"
+fi
 """,
             "dpkg": """#!/bin/sh
 if [ "${FAIL_COMPARE:-}" = 1 ]; then exit 2; fi
@@ -81,7 +94,9 @@ printf '%s' "${INSTALLED:-1.2.3}"
         env = os.environ.copy()
         env["PATH"] = str(self.cwd / "fake") + os.pathsep + env["PATH"]
         for k in ("PA2_USE_SNAPSHOT", "FAIL_SNAPSHOT", "FAIL_SNAPSHOT_TIMEOUT", "BAD_SIGNATURE", "PARTIAL_INDEX", "FAIL_UPDATE", "FAIL_INSTALL", "FAIL_POLICY",
-                  "FAIL_COMPARE", "FAIL_QUERY", "CANDIDATE", "INSTALLED"):
+                  "FAIL_COMPARE", "FAIL_QUERY", "CANDIDATE", "INSTALLED",
+                  "NO_REPOSITORY_VERSION", "MISSING_PIN_FROM_REPO",
+                  "UNTRUSTED_REPOSITORY"):
             env.pop(k, None)
         env.update(options)
         if name == "parse":
@@ -184,6 +199,38 @@ printf '%s' "${INSTALLED:-1.2.3}"
         self.assertIn("archive.ubuntu.com/ubuntu", helper)
         self.assertIn("security.ubuntu.com/ubuntu", helper)
         self.assertNotIn("packages.microsoft.com", helper)
+
+    def test_preinstalled_only_version_rejected_without_archive_source(self):
+        for tool in ("audit-toolchain", "install-toolchain"):
+            with self.subTest(tool=tool):
+                x = self.command(tool, NO_REPOSITORY_VERSION="1", INSTALLED="1.2.3")
+                self.assertEqual(x.returncode, 2, x.stderr)
+                self.assertIn(b"unavailable from authenticated Ubuntu", x.stderr)
+                if tool == "install-toolchain":
+                    self.assertNotIn("--reinstall", (self.cwd / "sudo.log").read_text())
+
+    def test_trusted_repository_must_supply_exact_pin(self):
+        for tool in ("audit-toolchain", "install-toolchain"):
+            x = self.command(tool, MISSING_PIN_FROM_REPO="1", CANDIDATE="1.2.4")
+            self.assertEqual(x.returncode, 2, x.stderr)
+            self.assertIn(b"unavailable from authenticated Ubuntu", x.stderr)
+
+    def test_madison_rows_from_untrusted_repository_rejected(self):
+        for tool in ("audit-toolchain", "install-toolchain"):
+            x = self.command(tool, UNTRUSTED_REPOSITORY="1")
+            self.assertEqual(x.returncode, 2, x.stderr)
+            self.assertIn(b"unexpected origin", x.stderr)
+
+    def test_archive_verified_reinstall_uses_isolated_indexes(self):
+        x = self.command("install-toolchain", INSTALLED="1.2.3")
+        self.assertEqual(x.returncode, 0, x.stderr)
+        log = (self.cwd / "sudo.log").read_text()
+        self.assertIn("--reinstall", log)
+        self.assertIn("Dir::State::lists=", log)
+        self.assertIn("APT::Get::AllowUnauthenticated=false", log)
+        self.assertIn("pa2-current.list", log)
+        for name in PACKAGES:
+            self.assertIn(f"{name}=1.2.3", log)
 
     def test_audit_accepts_exact_full_inventory(self):
         x = self.command("audit-toolchain")
