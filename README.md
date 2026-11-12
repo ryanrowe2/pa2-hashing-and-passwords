@@ -26,10 +26,10 @@ The example uses synthetic test strings. A SHA-256 argument must have exactly 64
 - Read one candidate per standard-input line. Remove only the LF line separator.
 - Accept empty candidates and an unterminated final line.
 - Maximum candidate length: **1,023 bytes**, not Unicode code points.
-- Reject overlong lines, embedded NUL, invalid digest arguments, and read, output-write, and cryptographic failures with an error on stderr and exit status **2**.
+- Reject overlong lines immediately at the 1,024th byte, embedded NUL immediately, invalid digest arguments, and read, output-write, and cryptographic failures with an error on stderr and exit status **2**.
 - Check the exact candidate, then every variation with one ASCII A–Z/a–z letter's case flipped. Non-ASCII UTF-8 bytes are preserved. Multiple flips are not combined.
-- On success, print the first matching candidate and return **0**. After normal EOF without a match, print `Did not find a matching password` and return **0**.
-- CRLF input retains CR as a candidate byte. Output reproduces matched input bytes literally; use trusted test data.
+- On success, print the first matching candidate with terminal-safe byte escapes and return **0**. After normal EOF without a match, print `Did not find a matching password` and return **0**.
+- CRLF input retains CR as a candidate byte. Output encodes backslashes as `\\`, and control or non-ASCII bytes as `\xHH` (uppercase hex); for example, UTF-8 `é` becomes `\xC3\xA9`. The hash is always checked against the original, unescaped bytes. On POSIX, a broken output pipe is reported with exit status 2.
 
 ## Structure
 
@@ -54,7 +54,7 @@ make CC=gcc test
 make bench
 ```
 
-`make test` checks exact and case-flip matches, invalid digests, empty input, EOF, large input, embedded NUL, multiple candidates, UTF-8 preservation, simulated cryptographic errors, input read failures, and output write failures. GitHub Actions runs these checks on Ubuntu 24.04, using a SHA-pinned checkout action and minimum workflow permissions. Its Clang job additionally verifies build-configuration changes trigger recompilation and runs sanitizer and static-analysis checks. Ubuntu packages still receive upstream updates. Results should be verified in the Actions tab rather than assumed.
+`make test` checks exact and case-flip matches, invalid digests, empty input, EOF, large input, embedded NUL, multiple candidates, UTF-8 preservation, simulated cryptographic errors, input read failures, output write failures, broken pipes, streaming overlength rejection, and terminal-safe escaping. GitHub Actions runs these checks on Ubuntu 24.04, using a commit-pinned `actions/checkout` v7.0.1 action and minimum workflow permissions. Its Clang job additionally verifies build-configuration changes trigger recompilation and runs sanitizer and static-analysis checks. CI records compiler, Python, OpenSSL and installed package versions for reproducibility diagnostics; Ubuntu packages still receive upstream updates. Dependabot checks GitHub Actions dependencies weekly. Results should be verified in the Actions tab rather than assumed.
 
 The algorithm performs at most **1 + a SHA-256 evaluations** per candidate, where a is the number of ASCII alphabetic bytes. At length n the worst-case total hashing work is O(n²), and working memory is O(1) under the fixed candidate-length bound. The optional benchmark reports local elapsed time, which includes startup and I/O overhead; it is not a portable performance claim.
 
@@ -64,4 +64,8 @@ The original PA2 course assignment instructions remain accessible in Git history
 
 ## Build configuration and licensing
 
-Make automatically recompiles binaries when the selected compiler, preprocessor/compiler/linker flags, or libraries change (even if source timestamps do not). The fault-injection tests use GNU/ELF linker `--wrap` and therefore target Linux toolchains. The project code and author-owned documentation are offered under the [MIT License](LICENSE); third-party course materials in history and the OpenSSL dependency are excluded. The historical [DESIGN.md](DESIGN.md) reflects the 2024 assignment, not the current code architecture.
+Make automatically recompiles binaries when the selected compiler, preprocessor/compiler/linker flags, linked libraries, or the Makefile itself change. The fault-injection tests use GNU/ELF linker `--wrap` and therefore target Linux toolchains. The project code and author-owned documentation are offered under the [MIT License](LICENSE); third-party course materials in history and the OpenSSL dependency are excluded. The historical [DESIGN.md](DESIGN.md) reflects the 2024 assignment, not the current code architecture.
+
+## GitHub repository settings
+
+Recommended repository description: **C11 SHA-256 candidate verification with defensive input handling, fault-injection tests, reproducible builds, and automated CI.** Suggested topics: `c`, `sha256`, `openssl`, `systems-programming`, `unit-testing`, `github-actions`. Protect `main` with a rule requiring the `quality (gcc)` and `quality (clang)` checks before merging. These GitHub settings are configured outside the source tree and must be verified in repository Settings; documentation here does not change them.

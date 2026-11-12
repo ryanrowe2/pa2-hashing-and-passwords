@@ -29,16 +29,16 @@ $(CONFIG): FORCE | build
 
 FORCE:
 
-$(BIN): src/main.c src/pwcrack.c include/pwcrack.h $(CONFIG) | build
+$(BIN): src/main.c src/pwcrack.c include/pwcrack.h Makefile $(CONFIG) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) src/main.c src/pwcrack.c $(LDFLAGS) $(LDLIBS) -o $@
 
-$(UNIT): tests/test_core.c src/pwcrack.c include/pwcrack.h $(CONFIG) | build
+$(UNIT): tests/test_core.c src/pwcrack.c include/pwcrack.h Makefile $(CONFIG) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_core.c src/pwcrack.c $(LDFLAGS) $(LDLIBS) -o $@
 
-$(FAULT): tests/test_fault.c src/pwcrack.c include/pwcrack.h $(CONFIG) | build
+$(FAULT): tests/test_fault.c src/pwcrack.c include/pwcrack.h Makefile $(CONFIG) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_fault.c src/pwcrack.c $(LDFLAGS) -Wl,--wrap=SHA256 $(LDLIBS) -o $@
 
-$(FAULT_CLI): tests/sha256_fail.c src/main.c src/pwcrack.c include/pwcrack.h $(CONFIG) | build
+$(FAULT_CLI): tests/sha256_fail.c src/main.c src/pwcrack.c include/pwcrack.h Makefile $(CONFIG) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/sha256_fail.c src/main.c src/pwcrack.c $(LDFLAGS) -Wl,--wrap=SHA256 $(LDLIBS) -o $@
 
 test: $(BIN) $(UNIT) $(FAULT) $(FAULT_CLI)
