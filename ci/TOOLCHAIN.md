@@ -1,6 +1,6 @@
 # Toolchain maintenance policy
 
-The application CI installs Ubuntu 24.04 toolchain packages from the dated APT snapshot specified in `ci/install-toolchain.sh`, with package versions checked against `ci/toolchain.lock`. Pinning protects builds against unreviewed dependency drift; it does not guarantee security updates or perfectly immutable runner images.
+Both the installer and weekly audit validate package entries through the shared `ci/parse-toolchain-lock.py` parser. It requires exactly `build-essential`, `gcc`, `gcc-13`, `clang`, `clang-18`, `libssl-dev`, and `python3`, rejects invalid whitespace, malformed versions, duplicate or unexpected packages, and never emits partial arguments on a failed read. The application CI installs Ubuntu 24.04 toolchain packages from the dated APT snapshot specified in `ci/install-toolchain.sh`, with package versions checked against `ci/toolchain.lock`. Pinning protects builds against unreviewed dependency drift; it does not guarantee security updates or perfectly immutable runner images.
 
 ## Weekly monitoring
 
@@ -18,4 +18,4 @@ Document any accepted exceptions or deferrals instead of silently disabling the 
 
 ## Offline regression checks
 
-Run `python3 -m unittest tests/test_toolchain_audit.py -v` to exercise update-availability and error paths using local mock commands without contacting APT repositories. These checks also run automatically in the main C build-and-test GitHub Actions workflow.
+Run `python3 -m unittest discover -s tests -p 'test_toolchain_audit.py' -v` to exercise update-availability and error paths using local mock commands without contacting APT repositories. These checks also run automatically in the main C build-and-test GitHub Actions workflow.
