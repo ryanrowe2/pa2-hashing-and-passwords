@@ -80,6 +80,23 @@ class MakeInspectionTests(unittest.TestCase):
         self.assertEqual(self.invoke("-q", "CC=clang", "build/pwcrack").returncode, 0)
         self.assertEqual(self.invoke("-q", "CC=gcc", "build/pwcrack").returncode, 1)
 
+    def test_touch_mode_rejected_before_creating_poisoned_build_artifacts(self):
+        for flags in (("-t",), ("--touch",), ("-nt",)):
+            with self.subTest(flags=flags):
+                result = self.invoke(*flags, "build/pwcrack")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.root / "build").exists())
+                self.assertFalse((self.root / ".pa2-build.lock").exists())
+
+    def test_touch_mode_rejected_without_modifying_existing_binary(self):
+        result = self.invoke("CC=gcc", "build/pwcrack")
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        binary = self.root / "build/pwcrack"
+        original = binary.read_bytes()
+        for flags in (("-t",), ("--touch",)):
+            self.assertNotEqual(self.invoke(*flags, "build/pwcrack").returncode, 0)
+            self.assertEqual(binary.read_bytes(), original)
+
     def test_normal_make_still_uses_lock_with_long_option(self):
         result = self.invoke("--no-print-directory", "CC=gcc", "build/pwcrack")
         self.assertEqual(result.returncode, 0, result.stderr.decode())
