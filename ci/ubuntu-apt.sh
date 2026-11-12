@@ -27,9 +27,9 @@ pa2_apt_select() {
   esac
   PA2_APT_LIST="$PA2_APT_DIR/pa2-$mode.list"
   {
-    printf 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] %s noble main restricted universe multiverse\n' "$repo"
-    printf 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] %s noble-updates main restricted universe multiverse\n' "$repo"
-    printf 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] %s noble-security main restricted universe multiverse\n' "$security"
+    printf 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] %s noble main universe\n' "$repo"
+    printf 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] %s noble-updates main universe\n' "$repo"
+    printf 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] %s noble-security main universe\n' "$security"
   } > "$PA2_APT_LIST"
   chmod 644 "$PA2_APT_LIST"
   PA2_APT_OPTIONS=(
@@ -37,6 +37,8 @@ pa2_apt_select() {
     -o "Dir::Etc::sourceparts=-"
     -o "APT::Update::Error-Mode=any"
     -o "Acquire::Retries=0"
+    -o "Acquire::Languages=none"
+    -o "Acquire::IndexTargets::deb::CNF::DefaultEnabled=false"
   )
 }
 
