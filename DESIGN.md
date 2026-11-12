@@ -1,4 +1,6 @@
-# DESIGN.md
+# Original CSE 29 PA2 Design Responses (2024)
+
+**Historical coursework:** The answers below describe the original 2024 assignment, including a working-memory model that no longer matches the refactored implementation. They are preserved for provenance; see [README.md](README.md) for current architecture, performance, and behavior.
 
 ### Design Questions
 

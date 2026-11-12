@@ -2,6 +2,19 @@
 
 #include <stdio.h>
 
+/* Report buffered output failures, including errors during the final flush. */
+static int finish_output(int write_ok) {
+    if (!write_ok) {
+        perror("Error: unable to write standard output");
+        return 2;
+    }
+    if (fclose(stdout) == EOF) {
+        perror("Error: unable to write standard output");
+        return 2;
+    }
+    return 0;
+}
+
 /* The reader consumes one complete line, including when it is invalid.
    It never treats fragments of an oversized line as separate candidates. */
 enum read_status {
@@ -94,11 +107,10 @@ int main(int argc, char **argv) {
             return 2;
         }
         if (match == 1) {
-            printf("Found password: SHA256(%s) = %s\n", candidate, argv[1]);
-            return 0;
+            return finish_output(printf("Found password: SHA256(%s) = %s\n",
+                                        candidate, argv[1]) >= 0);
         }
     }
 
-    puts("Did not find a matching password");
-    return 0;
+    return finish_output(puts("Did not find a matching password") != EOF);
 }

@@ -26,7 +26,7 @@ The example uses synthetic test strings. A SHA-256 argument must have exactly 64
 - Read one candidate per standard-input line. Remove only the LF line separator.
 - Accept empty candidates and an unterminated final line.
 - Maximum candidate length: **1,023 bytes**, not Unicode code points.
-- Reject overlong lines, embedded NUL, invalid digest arguments, and read failures with an error on stderr and exit status **2**.
+- Reject overlong lines, embedded NUL, invalid digest arguments, and read, output-write, and cryptographic failures with an error on stderr and exit status **2**.
 - Check the exact candidate, then every variation with one ASCII A–Z/a–z letter's case flipped. Non-ASCII UTF-8 bytes are preserved. Multiple flips are not combined.
 - On success, print the first matching candidate and return **0**. After normal EOF without a match, print `Did not find a matching password` and return **0**.
 - CRLF input retains CR as a candidate byte. Output reproduces matched input bytes literally; use trusted test data.
@@ -39,6 +39,7 @@ The example uses synthetic test strings. A SHA-256 argument must have exactly 64
 | `src/pwcrack.c` | Hex decoding, SHA-256 comparison, case variations |
 | `include/pwcrack.h` | Public interface and input limit |
 | `tests/test_core.c` | Unit assertions |
+| `tests/test_fault.c`, `tests/sha256_fail.c` | Injected cryptographic failure checks |
 | `tests/test_cli.py` | End-to-end and malformed-input regression suite |
 | `tests/benchmark.py` | Synthetic-input timing |
 | `.github/workflows/ci.yml` | GCC/Clang, tests, analyzer, ASan/UBSan |
@@ -48,15 +49,19 @@ The example uses synthetic test strings. A SHA-256 argument must have exactly 64
 ```sh
 make clean && make test
 make analyze
-make clean && make CC=clang SANITIZE=1 test
-make clean && make CC=gcc test
+make CC=clang SANITIZE=1 test
+make CC=gcc test
 make bench
 ```
 
-`make test` checks exact and case-flip matches, invalid digests, empty input, EOF, large input, embedded NUL, multiple candidates, and UTF-8 preservation. GitHub Actions runs the same checks on Ubuntu, including sanitizer and Clang static-analysis jobs. Results should be verified in the Actions tab rather than assumed.
+`make test` checks exact and case-flip matches, invalid digests, empty input, EOF, large input, embedded NUL, multiple candidates, UTF-8 preservation, simulated cryptographic errors, input read failures, and output write failures. GitHub Actions runs these checks on Ubuntu 24.04, using a SHA-pinned checkout action and minimum workflow permissions. Its Clang job additionally verifies build-configuration changes trigger recompilation and runs sanitizer and static-analysis checks. Ubuntu packages still receive upstream updates. Results should be verified in the Actions tab rather than assumed.
 
 The algorithm performs at most **1 + a SHA-256 evaluations** per candidate, where a is the number of ASCII alphabetic bytes. At length n the worst-case total hashing work is O(n²), and working memory is O(1) under the fixed candidate-length bound. The optional benchmark reports local elapsed time, which includes startup and I/O overhead; it is not a portable performance claim.
 
 ## History, responsibility and limitations
 
 The original PA2 course assignment instructions remain accessible in Git history, and the original written design discussion remains in `DESIGN.md`. Attribution is in `CREDITS.md`. This is a limited, educational candidate verification exercise, not a credential attack tool or a password-storage system. It uses locally supplied synthetic/authorized test data only and has no networking, credential collection, parallel searching or attack automation. Plain SHA-256 is not appropriate for secure password storage; use a password-specific algorithm such as Argon2id in real applications. See the [commit history](https://github.com/ryanrowe2/pa2-hashing-and-passwords/commits/main/).
+
+## Build configuration and licensing
+
+Make automatically recompiles binaries when the selected compiler, preprocessor/compiler/linker flags, or libraries change (even if source timestamps do not). The fault-injection tests use GNU/ELF linker `--wrap` and therefore target Linux toolchains. The project code and author-owned documentation are offered under the [MIT License](LICENSE); third-party course materials in history and the OpenSSL dependency are excluded. The historical [DESIGN.md](DESIGN.md) reflects the 2024 assignment, not the current code architecture.
