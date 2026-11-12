@@ -21,26 +21,14 @@ fi
 
 updates=0
 for spec in "${packages[@]}"; do
-  name=${spec%%=*}
-  pinned=${spec#*=}
-  if ! policy=$(apt-cache "${PA2_APT_OPTIONS[@]}" policy "$name"); then
-    printf '::error::Cannot query available package versions for %s\n' "$name" >&2
-    exit 2
-  fi
-  candidate=$(printf '%s\n' "$policy" | awk '$1 == "Candidate:" {print $2; exit}')
-  if [[ -z "$candidate" || "$candidate" == '(none)' ]]; then
-    printf '::error::Cannot determine available version of %s\n' "$name" >&2
-    exit 2
-  fi
-  if dpkg --compare-versions "$candidate" gt "$pinned"; then
-    printf '::warning title=Toolchain update available::%s %s -> %s\n' \
-      "$name" "$pinned" "$candidate"
-    updates=$((updates + 1))
+  if pa2_apt_check_available audit "$spec"; then
+    :
   else
-    compare_status=$?
-    if (( compare_status != 1 )); then
-      printf '::error::Version comparison failed for %s (exit %d)\n' \
-        "$name" "$compare_status" >&2
+    check_status=$?
+    if (( check_status == 1 )); then
+      updates=$((updates + 1))
+    else
+      printf '::error::Unavailable or untrusted repository pin: %s\n' "$spec" >&2
       exit 2
     fi
   fi

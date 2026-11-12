@@ -27,9 +27,8 @@ jobs:
         run: bash ci/record-environment.sh
       - name: Build and test
         run: make CC=${{ matrix.compiler }} test
-      - name: Confirm the application links the verified OpenSSL runtime
-        run: |
-          ldd build/pwcrack | grep -E 'libcrypto\.so\.3[[:space:]]+=>'
+      - name: Verify the actual OpenSSL library path and package origin
+        run: python3 ci/verify-libcrypto.py build/pwcrack
       - name: Static analysis (Clang)
         if: matrix.compiler == 'clang'
         run: make analyze

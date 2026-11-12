@@ -53,10 +53,20 @@ else
   source_used="signed Ubuntu archives (exact locked versions)"
 fi
 
-# Installation failure is never an outage signal. Do not retry from a
-# different source after a signed package install or integrity error.
+# Every selected version must actually be obtainable from Ubuntu's signed
+# archive indexes; a preinstalled status-database entry is insufficient.
+for spec in "${packages[@]}"; do
+  if ! pa2_apt_check_available install "$spec"; then
+    printf '::error::Refusing unavailable or untrusted pinned package: %s\n' "$spec" >&2
+    exit 2
+  fi
+done
+
+# --reinstall ensures even already-present packages are sourced through the
+# authenticated archive indexes and verified against signed repository hashes.
+# Installation errors never trigger snapshot fallback.
 if ! sudo DEBIAN_FRONTEND=noninteractive apt-get "${PA2_APT_OPTIONS[@]}" install \
-      -y --no-install-recommends --allow-downgrades "${packages[@]}"; then
+      -y --reinstall --no-install-recommends --allow-downgrades "${packages[@]}"; then
   printf '::error::Installation of exact locked versions failed\n' >&2
   exit 2
 fi
