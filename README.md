@@ -1,5 +1,11 @@
 # SHA-256 Candidate Verification in C
 
+**Engineering focus:** This small C program demonstrates disciplined systems engineering through bounded streaming input, explicit error handling, deterministic candidate verification, and automated testing.
+
+**Start here:** [Build and run](#build-and-run) provides a working example; [input contract](#input-contract) and [verify](#verify) document the edge cases and evidence.
+
+**Origin:** UC San Diego coursework subsequently refactored for reliability, with original history and attribution retained.
+
 [![C build and tests](https://github.com/ryanrowe2/pa2-hashing-and-passwords/actions/workflows/ci.yml/badge.svg)](https://github.com/ryanrowe2/pa2-hashing-and-passwords/actions/workflows/ci.yml)
 
 A compact, testable C11 program for verifying locally supplied candidate strings against a SHA-256 digest, including **one ASCII letter case change per candidate**. Originally developed for UC San Diego's Fall 2024 CSE 29 PA2 assignment; subsequently refactored for engineering reliability, automated verification, and clear portfolio presentation. Original history is retained.
